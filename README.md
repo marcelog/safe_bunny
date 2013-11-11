@@ -7,7 +7,7 @@ Let's say you have rabbitmq as your main event/commands bus for your project. Mo
 of the time, rabbitmq will be there (available), but sometimes, you might experience
 connectivity issues, or maybe the server is down, or something else went wrong, 
 and you want to be as sure as possible that you will be able to send some important
-messages, even if that means that they will *eventually* be sent.
+messages, even if that means that they will *eventually* be sent, and not right away.
 
 safe_bunny gives you a couple of queue alternatives to use when rabbitmq is
 not available for whatever reason, while still allowing you to **fire-and-forget**
@@ -15,6 +15,15 @@ messages, and it will handle this automagically for you (or at least do its best
 effort).
 
 safe_bunny includes the needed producers and consumers for the fallback queues.
+
+## Example
+
+ - safe_bunny is configured with queues mysql, redis, file, ets (in that order).
+ - A publish fails with a **NO_ROUTE** error.
+ - The first fallback queue is tried (in this case, mysql).
+ - If the fallback queue fails or is not available, the next one is tried, until
+ one succeeds or no more queues are available.
+ - You get to choose which queues will be available and the order of preference.
 
 ## Disclaimer
 Nothing is safe. But this might give you a safer solution when using rabbitmq
