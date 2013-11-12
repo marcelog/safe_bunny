@@ -82,7 +82,9 @@ mq_confirm_timeout() ->
 ets() ->
   get_option(ets, [
     {name, safe_bunny_queue},
-    {consumer_poll, 1000}
+    {consumer_poll, 200},
+    {backoff_intervals, [500, 1000, 2000, 4000, 10000, 60000]},
+    {maximum_retries, 100}
   ]).
 
 %% @doc Shortcut to get ets name.
@@ -95,7 +97,9 @@ ets_name() ->
 file() ->
   get_option(file, [
     {directory, "/tmp/safe_bunny_queue"},
-    {consumer_poll, 1000}
+    {consumer_poll, 200},
+    {backoff_intervals, [500, 1000, 2000, 4000, 10000, 60000]},
+    {maximum_retries, 100}
   ]).
 
 %% @doc Shortcut to get queue directory for file backend.
@@ -112,7 +116,9 @@ redis() ->
     {db, 0},
     {key, "safe_bunny_queue"},
     {producer_connections, 1},
-    {consumer_poll, 1000}
+    {consumer_poll, 200},
+    {backoff_intervals, [500, 1000, 2000, 4000, 10000, 60000]},
+    {maximum_retries, 100}
   ]).
 
 %% @doc Shortcut to get redis key.
@@ -131,7 +137,9 @@ mysql() ->
     {db, "safe_bunny_queue"},
     {table, "items"},
     {producer_connections, 1},
-    {consumer_poll, 1000}
+    {consumer_poll, 200},
+    {backoff_intervals, [500, 1000, 2000, 4000, 10000, 60000]},
+    {maximum_retries, 100}
   ]).
 
 %% @doc Shortcut to get mysql table name.

@@ -32,8 +32,12 @@
 -record(state, {
   callback = undefined:: module(),
   callback_state = undefined:: term(),
-  consumer_poll = undefined:: pos_integer()
+  consumer_poll = undefined:: pos_integer(),
+  backoff_intervals = []:: [pos_integer()],
+  current_intervals = []:: [pos_integer()],
+  maximum_retries = undefined:: pos_integer()
 }).
+
 -type state():: #state{}.
 -type options():: proplists:proplist().
 
@@ -74,11 +78,16 @@ start_link(Config, Module) ->
 init([Config, Module]) ->
   {ok, CallbackState} = Module:init(Config),
   PollTime = proplists:get_value(consumer_poll, Config),
+  BackoffIntervals = proplists:get_value(backoff_intervals, Config),
+  MaxRetries = proplists:get_value(maximum_retries, Config),
   erlang:send_after(PollTime, self(), poll),
   {ok, #state{
     callback = Module,
     callback_state = CallbackState,
-    consumer_poll = PollTime
+    consumer_poll = PollTime,
+    backoff_intervals = BackoffIntervals,
+    current_intervals = BackoffIntervals,
+    maximum_retries = MaxRetries
   }, hibernate}.
 
 -spec handle_cast(any(), state()) -> {noreply, state()}.
@@ -87,32 +96,46 @@ handle_cast(Msg, State) ->
   {noreply, State, hibernate}.
 
 -spec handle_info(any(), state()) -> {noreply, state()}.
-handle_info(poll, State=#state{callback = Module, consumer_poll = PollTime}) ->
-  try
+handle_info(poll, State=#state{callback = Module}) ->
+  Result = try
     case Module:next() of
       {ok, {Id, Data}} ->
         {Json} = jiffy:decode(Data),
         Exchange = proplists:get_value(<<"exchange">>, Json),
         Key = proplists:get_value(<<"key">>, Json),
         Payload = base64:decode(proplists:get_value(<<"payload">>, Json)),
-        lager:debug("Processing queued item (~p) for: ~p:~p: id: ~p:~p", [Module, Exchange, Key, Id, Payload]),
+        lager:debug("~p: Processing queued item for: ~p:~p: id: ~p:~p", [Module, Exchange, Key, Id, Payload]),
         case safe_bunny_worker:deliver(true, Exchange, Key, Payload) of
-          ok -> Module:delete(Id);
-          ErrorMq -> lager:warning("Could not dispatch queued item into mq: ~p", [ErrorMq]), ok
+          ok -> Module:delete(Id), ok;
+          ErrorMq -> lager:warning("~p: Could not dispatch queued item into mq: ~p", [Module, ErrorMq]), ErrorMq
         end;
       none -> ok;
-      Error -> lager:error("Could not poll queue (1): ~p: ~p", [Module, Error]), ok
+      Error -> lager:error("~p: Could not poll queue (1): ~p", [Module, Error]), Error
     end
   catch
     _: E ->
       lager:error(
-        "Could not poll queue (2): ~p: ~p - Stacktrace: ~p",
+        "~p: Could not poll queue (2): ~p - Stacktrace: ~p",
         [Module, E, erlang:get_stacktrace()]
       ),
       E
   end,
-  erlang:send_after(PollTime, self(), poll),
-  {noreply, State, hibernate};
+  {NextPoll, NewState} = case Result of
+    ok ->
+      {
+        State#state.consumer_poll,
+        State#state{current_intervals = State#state.backoff_intervals}
+      };
+    OpError ->
+      {NextPoll_, NextIntervals} = case State#state.current_intervals of
+        [Last] -> {Last, State#state.current_intervals};
+        [N|Rest] -> {N, Rest}
+      end,
+      lager:warning("~p: Retrying in ~pms due to: ~p", [State#state.callback, NextPoll_, OpError]),
+      {NextPoll_, State#state{current_intervals = NextIntervals}}
+  end,
+  erlang:send_after(NextPoll, self(), poll),
+  {noreply, NewState, hibernate};
 
 handle_info(Msg, State) ->
   lager:error("Invalid msg: ~p", [Msg]),
