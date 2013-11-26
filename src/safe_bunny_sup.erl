@@ -59,7 +59,8 @@ init([]) ->
   % Create ETS table (for ETS producer/consumer), so the sup owns it.
   Ets = ?SB_CFG:ets_name(),
   Ets = ets:new(Ets, [
-    public, named_table, {write_concurrency, true}, {read_concurrency, true}
+    ordered_set, public, named_table,
+    {write_concurrency, true}, {read_concurrency, true}
   ]),
   % Initialize producers.
   [begin

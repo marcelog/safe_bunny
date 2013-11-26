@@ -35,4 +35,4 @@
 %%% Behavior definition.
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 -callback init(options()) -> ok|term().
--callback queue(safe_bunny:queue_payload()) -> ok|term().
+-callback queue(safe_bunny_message:queue_payload()) -> ok|term().

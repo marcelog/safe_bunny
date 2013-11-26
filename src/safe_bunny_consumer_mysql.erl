@@ -36,13 +36,15 @@
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 -record(state, {}).
 -type state():: #state{}.
+-define(SB, safe_bunny).
+-define(SBC, safe_bunny_consumer).
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%% Exports.
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
--export([next/0, delete/1]).
-
 %%% safe_bunny_consumer behavior.
+-export([next/1, delete/2]).
+-export([failed/2, success/2]).
 -export([init/1, terminate/2]).
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -62,28 +64,49 @@ init(Options) ->
 	ok = emysql:add_pool(?MODULE, 1, User, Pass, Host, Port, Db, utf8),
   #ok_packet{} = emysql:execute(?MODULE, ?CREATE_TABLE_SQL(Table)),
   ok = emysql:prepare(fetch_item, lists:flatten([
-    "SELECT `id`, `data` FROM `", Table, "` ORDER BY `id` ASC LIMIT 0,1"
+    "SELECT `uuid`, `exchange`, `key`, `payload`, `attempts` FROM `", Table,
+    "` ORDER BY `id` ASC LIMIT 0,1"
   ])),
   ok = emysql:prepare(delete_item, lists:flatten([
-    "DELETE FROM `", Table, "` WHERE `id`=?"
+    "DELETE FROM `", Table, "` WHERE `uuid`=? ORDER BY `id` ASC LIMIT 1"
+  ])),
+  ok = emysql:prepare(requeue_item, lists:flatten([
+    "INSERT INTO `", Table, "` ("
+      "`uuid`, `exchange`, `key`, `payload`, `attempts`"
+    ") ("
+    "  SELECT `uuid`, `exchange`, `key`, `payload`, `attempts`+1 FROM `items` WHERE uuid=?"
+    ")"
   ])),
   {ok, #state{}}.
 
--spec next() -> safe_bunny:queue_fetch_result().
-next() ->
+-spec next(?SBC:callback_state()) -> ?SB:queue_fetch_result().
+next(State) ->
   case emysql:execute(?MODULE, fetch_item, []) of
-    #result_packet{rows=[]} -> none;
-    #result_packet{rows=[[Id, Payload]]} -> {ok, {Id, Payload}};
-    Error -> Error
+    #result_packet{rows=[]} ->
+      {ok, none, State};
+    #result_packet{rows=[[Id, Exchange, Key, Payload, Attempts]]} ->
+      {ok, Id, safe_bunny_message:new(Id, Exchange, Key, base64:decode(Payload), Attempts), State};
+    Error -> {error, Error, State}
   end.
 
--spec delete(safe_bunny:queue_id()) -> ok|term().
-delete(Id) ->
+-spec delete(?SB:queue_id(), ?SBC:callback_state()) -> ?SBC:callback_result().
+delete(Id, State) ->
   case emysql:execute(?MODULE, delete_item, [Id]) of
-    #result_packet{rows=[]} -> none;
-    #result_packet{rows=[[Id, Payload]]} -> {ok, {Id, Payload}};
-    Error -> Error
+    #ok_packet{affected_rows=1} -> {ok, State};
+    #ok_packet{affected_rows=0} -> lager:warning("Item disappeared? ~p", [Id]), {ok, State};
+    Error -> {error, Error, State}
   end.
+
+-spec failed(?SB:queue_id(), ?SBC:callback_state()) -> ?SBC:callback_result().
+failed(Id, State) ->
+  case emysql:execute(?MODULE, requeue_item, [Id]) of
+    #ok_packet{} -> delete(Id, State);
+    Error -> {error, Error, State}
+  end.
+
+-spec success(?SB:queue_id(), ?SBC:callback_state()) -> ?SBC:callback_result().
+success(Id, State) ->
+  delete(Id, State).
 
 -spec terminate(term(), state()) -> ok.
 terminate(_Reason, _State) ->

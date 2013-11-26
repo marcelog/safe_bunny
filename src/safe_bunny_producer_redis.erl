@@ -73,9 +73,9 @@ init(Options) ->
   ]),
   ok.
 
--spec queue(safe_bunny:queue_payload()) -> ok|term().
-queue(Payload) ->
-  wpool:call(?MODULE, {queue, Payload}).
+-spec queue(safe_bunny_message:queue_payload()) -> ok|term().
+queue(Message) ->
+  wpool:call(?MODULE, {queue, Message}).
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%% worker_pool API.
@@ -91,11 +91,19 @@ handle_info(_Info, State) ->
 -spec handle_call(
   term(), {pid(), reference()}, state()
 ) -> {reply, term() | {invalid_request, term()}, state()}.
-handle_call({queue, Payload}, _From, #state{eredis=C} = State) ->
-  Ret = case eredis:q(C, [<<"RPUSH">>, ?SB_CFG:redis_key(), Payload]) of
-    {ok, _} -> ok;
-    Error -> Error
-  end,
+handle_call({queue, Message}, _From, #state{eredis=C} = State) ->
+  Id = safe_bunny_message:id(Message),
+  Key = safe_bunny_common_redis:key_message(Id),
+  Ret = safe_bunny_common_redis:assert_transaction_result(eredis:qp(C, [
+    [<<"MULTI">>],
+    [<<"HSET">>, Key, "id", safe_bunny_message:id(Message)],
+    [<<"HSET">>, Key, "exchange", safe_bunny_message:exchange(Message)],
+    [<<"HSET">>, Key, "key", safe_bunny_message:key(Message)],
+    [<<"HSET">>, Key, "payload", safe_bunny_message:payload(Message)],
+    [<<"HSET">>, Key, "attempts", safe_bunny_message:attempts(Message)],
+    [<<"LPUSH">>, safe_bunny_common_redis:key_queue(), Id],
+    [<<"EXEC">>]
+  ])),
   {reply, Ret, State};
 
 handle_call(Unknown, _From, State) ->
@@ -109,3 +117,7 @@ terminate(_Reason, _State) ->
 -spec code_change(string(), state(), any()) -> {ok, state()}.
 code_change(_OldVsn, State, _Extra) ->
   {ok, State}.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%% Private API.
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%

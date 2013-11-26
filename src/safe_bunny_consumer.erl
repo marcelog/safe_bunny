@@ -29,9 +29,14 @@
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%% Types.
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+-type callback_state():: term().
+-type options():: proplists:proplist().
+-type callback_result()::
+  {ok, callback_state()}|{error, term(), callback_state()}.
+
 -record(state, {
   callback = undefined:: module(),
-  callback_state = undefined:: term(),
+  callback_state = undefined:: callback_state(),
   consumer_poll = undefined:: pos_integer(),
   backoff_intervals = []:: [pos_integer()],
   current_intervals = []:: [pos_integer()],
@@ -39,7 +44,6 @@
 }).
 
 -type state():: #state{}.
--type options():: proplists:proplist().
 
 -export_type([options/0, state/0]).
 
@@ -47,8 +51,14 @@
 %%% Behavior definition.
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 -callback init(options()) -> {ok, state()}|{error, term()}.
--callback next() -> safe_bunny:queue_fetch_result().
--callback delete(safe_bunny:queue_id()) -> ok|term().
+
+-callback next(callback_state()) ->
+  {ok, safe_bunny:queue_fetch_result(), callback_state()}
+  |{error, term(), callback_state()}.
+
+-callback failed(safe_bunny:queue_id(), callback_state()) -> callback_result().
+-callback success(safe_bunny:queue_id(), callback_state()) -> callback_result().
+-callback delete(safe_bunny:queue_id(), callback_state()) -> callback_result().
 -callback terminate(any(), state()) -> ok.
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -97,30 +107,30 @@ handle_cast(Msg, State) ->
 
 -spec handle_info(any(), state()) -> {noreply, state()}.
 handle_info(poll, State=#state{callback = Module}) ->
-  Result = try
-    case Module:next() of
-      {ok, {Id, Data}} ->
-        {Json} = jiffy:decode(Data),
-        Exchange = proplists:get_value(<<"exchange">>, Json),
-        Key = proplists:get_value(<<"key">>, Json),
-        Payload = base64:decode(proplists:get_value(<<"payload">>, Json)),
-        lager:debug("~p: Processing queued item for: ~p:~p: id: ~p:~p", [Module, Exchange, Key, Id, Payload]),
-        case safe_bunny_worker:deliver(true, Exchange, Key, Payload) of
-          ok -> Module:delete(Id), ok;
-          ErrorMq -> lager:warning("~p: Could not dispatch queued item into mq: ~p", [Module, ErrorMq]), ErrorMq
-        end;
-      none -> ok;
-      Error -> lager:error("~p: Could not poll queue (1): ~p", [Module, Error]), Error
-    end
-  catch
-    _: E ->
-      lager:error(
-        "~p: Could not poll queue (2): ~p - Stacktrace: ~p",
-        [Module, E, erlang:get_stacktrace()]
+  {OpResult, NewCallbackState} = case Module:next(State#state.callback_state) of
+    {ok, none, NewCallbackState_} -> {ok, NewCallbackState_};
+    {ok, QueueId, Message, NewCallbackState_} ->
+      Id = safe_bunny_message:id(Message),
+      Exchange = safe_bunny_message:exchange(Message),
+      Key = safe_bunny_message:key(Message),
+      Payload = safe_bunny_message:payload(Message),
+      Attempts = safe_bunny_message:attempts(Message),
+      lager:debug(
+        "~p: Processing queued item for: ~p:~p: id: ~p:~p",
+        [Module, Exchange, Key, Id, Payload]
       ),
-      E
+      case safe_bunny_worker:deliver(true, Exchange, Key, Payload) of
+        ok -> Module:success(QueueId, NewCallbackState_);
+        PreOpResult ->
+          lager:warning("~p: Could not dispatch queued item into mq: ~p", [Module, PreOpResult]),
+          Module:failed(QueueId, NewCallbackState_),
+          {error, PreOpResult}
+      end;        
+    Error ->
+      lager:error("~p: Could not poll queue (1): ~p", [Module, Error]),
+      Error
   end,
-  {NextPoll, NewState} = case Result of
+  {NextPoll, NewState} = case OpResult of
     ok ->
       {
         State#state.consumer_poll,
@@ -135,7 +145,7 @@ handle_info(poll, State=#state{callback = Module}) ->
       {NextPoll_, State#state{current_intervals = NextIntervals}}
   end,
   erlang:send_after(NextPoll, self(), poll),
-  {noreply, NewState, hibernate};
+  {noreply, NewState#state{callback_state = NewCallbackState}, hibernate};
 
 handle_info(Msg, State) ->
   lager:error("Invalid msg: ~p", [Msg]),
@@ -155,3 +165,7 @@ terminate(_Reason, _State) ->
 -spec code_change(string(), state(), any()) -> {ok, state()}.
 code_change(_OldVsn, State, _Extra) ->
   {ok, State}.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%% Private API.
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%

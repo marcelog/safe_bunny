@@ -36,7 +36,7 @@
 -export([consumers/0, producers/0]).
 -export([mq/0]).
 -export([ets/0, file/0, redis/0, mysql/0]).
--export([mysql_table/0, redis_key/0, ets_name/0, file_directory/0]).
+-export([mysql_table/0, redis_key_prefix/0, ets_name/0, file_directory/0]).
 -export([mq_confirm_timeout/0]).
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -84,6 +84,7 @@ ets() ->
     {name, safe_bunny_queue},
     {consumer_poll, 200},
     {backoff_intervals, [500, 1000, 2000, 4000, 10000, 60000]},
+    {in_order, false},
     {maximum_retries, 100}
   ]).
 
@@ -99,6 +100,7 @@ file() ->
     {directory, "/tmp/safe_bunny_queue"},
     {consumer_poll, 200},
     {backoff_intervals, [500, 1000, 2000, 4000, 10000, 60000]},
+    {in_order, false},
     {maximum_retries, 100}
   ]).
 
@@ -114,17 +116,18 @@ redis() ->
     {host, "127.0.0.1"},
     {port, 6379},
     {db, 0},
-    {key, "safe_bunny_queue"},
+    {key_prefix, "safe_bunny"},
     {producer_connections, 1},
     {consumer_poll, 200},
     {backoff_intervals, [500, 1000, 2000, 4000, 10000, 60000]},
+    {in_order, false},
     {maximum_retries, 100}
   ]).
 
 %% @doc Shortcut to get redis key.
--spec redis_key() -> string().
-redis_key() ->
-  proplists:get_value(key, redis()).
+-spec redis_key_prefix() -> string().
+redis_key_prefix() ->
+  proplists:get_value(key_prefix, redis()).
 
 %% @doc Returns mysql backend options.
 -spec mysql() -> proplists:proplist().
@@ -139,6 +142,7 @@ mysql() ->
     {producer_connections, 1},
     {consumer_poll, 200},
     {backoff_intervals, [500, 1000, 2000, 4000, 10000, 60000]},
+    {in_order, false},
     {maximum_retries, 100}
   ]).
 

@@ -43,18 +43,18 @@
 init(_Options) ->
   ok.
 
--spec queue(safe_bunny:queue_payload()) -> ok|term().
-queue(Payload) ->
+-spec queue(safe_bunny_message:queue_payload()) -> ok|term().
+queue(Message) ->
+  Id = binary_to_list(safe_bunny_message:id(Message)),
+  Exchange = binary_to_list(safe_bunny_message:exchange(Message)),
+  Key = binary_to_list(safe_bunny_message:key(Message)),
+  Payload = safe_bunny_message:payload(Message),
+
   {Mega, Secs, Micro} = os:timestamp(),
   Ts = integer_to_list(Mega * 1000000000000 + Secs * 1000000 + Micro),
-  Hash = integer_to_list(erlang:phash2(make_ref())),
   Directory = ?SB_CFG:file_directory(),
-  Filename = Directory ++ "/" ++ Ts ++ "." ++ Hash,
-  case filelib:ensure_dir(Filename) of
-    ok ->
-      case file:write_file(Filename, Payload) of
-        ok -> ok;
-        ErrorWritingFile -> ErrorWritingFile
-      end;
-    Error -> Error
-  end.
+  Attempts = "0",
+
+  Filename = Directory ++ "/" ++ string:join([Ts, Id, Exchange, Key, Attempts], "."),
+  ok = filelib:ensure_dir(Filename),
+  ok = file:write_file(Filename, Payload).

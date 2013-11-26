@@ -31,9 +31,6 @@
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%% Types.
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
--type queue_id():: term().
--type queue_payload():: term().
--type queue_fetch_result():: {ok, {queue_id(), queue_payload()}}|none|term().
 -define(APPS, [
   compiler,
   syntax_tools,
@@ -42,10 +39,14 @@
   safe_bunny
 ]).
 
+-type queue_fetch_result():: {
+  ok, term(), safe_bunny_message:message(), safe_bunny_consumer:callback_state()
+}.
+-export_type([queue_fetch_result/0]).
+
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%% Exports.
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
--export_type([queue_id/0, queue_payload/0, queue_fetch_result/0]).
 -export([start/0, stop/0]).
 -export([producer_module/1, consumer_module/1]).
 -export([queue/3, deliver_safe/3, deliver_unsafe/3]).
@@ -116,13 +117,8 @@ deliver_task(Safe, Exchange, Key, Payload) ->
 %% producers. Should fail only when all backends failed to save the message.
 -spec queue_task(binary(), binary(), binary()) -> ok|term().
 queue_task(Exchange, Key, Payload) ->
-  Json = jiffy:encode({[
-    {<<"id">>, base64:encode(term_to_binary(make_ref()))},
-    {<<"exchange">>, Exchange},
-    {<<"key">>, Key},
-    {<<"payload">>, base64:encode(Payload)}
-  ]}),
-  ok = queue(Json, ?SB_CFG:producers()).
+  Message = safe_bunny_message:new(Exchange, Key, Payload),
+  ok = queue(Message, ?SB_CFG:producers()).
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%% Application helper functions.

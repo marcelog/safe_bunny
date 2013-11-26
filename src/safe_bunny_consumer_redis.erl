@@ -37,13 +37,15 @@
   eredis = undefined:: pid()
 }).
 -type state():: #state{}.
+-define(SB, safe_bunny).
+-define(SBC, safe_bunny_consumer).
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%% Exports.
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
--export([next/0, delete/1]).
-
 %%% safe_bunny_consumer behavior.
+-export([next/1, delete/2]).
+-export([failed/2, success/2]).
 -export([init/1, terminate/2]).
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -55,24 +57,65 @@ init(Options) ->
   Port = proplists:get_value(port, Options),
   Db = proplists:get_value(db, Options),
   {ok, Pid} = eredis:start_link(Host, Port),
-  {ok, <<"OK">>} = eredis:q(Pid, [<<"select">>, Db]),
   erlang:register(redis_name(), Pid),
+  {ok, _} = exec(<<"select">>, [Db]),
   {ok, #state{eredis=Pid}}.
 
--spec next() -> safe_bunny:queue_fetch_result().
-next() ->
-  case eredis:q(redis_name(), [<<"LINDEX">>, ?SB_CFG:redis_key(), <<"1">>]) of
-    {ok, undefined} -> none;
-    {ok, Payload} -> {ok, {1, Payload}};
-    Error -> Error
+-spec next(?SBC:callback_state()) ->
+  {ok, ?SB:queue_fetch_result(), ?SBC:callback_state()}
+  | {error, term(), ?SBC:callback_state()}.
+next(State) ->
+  case exec(
+    <<"LINDEX">>, [safe_bunny_common_redis:key_queue(), <<"-1">>]
+  ) of
+    {ok, undefined} -> {ok, none, State};
+    {ok, MessageId} ->
+      case exec(<<"HGETALL">>, [safe_bunny_common_redis:key_message(MessageId)]) of
+        {ok, []} ->
+          lager:warning("Item deleted? ~p", [MessageId]),
+          delete(MessageId, State),
+          next(State);
+        {ok, KVs} ->
+          Message = kvs_to_proplist(KVs),
+          {ok, 1, safe_bunny_message:new(
+            proplists:get_value(<<"id">>, Message),
+            proplists:get_value(<<"exchange">>, Message),
+            proplists:get_value(<<"key">>, Message),
+            proplists:get_value(<<"payload">>, Message),
+            list_to_integer(binary_to_list(proplists:get_value(<<"attempts">>, Message)))
+          ), State};
+        Error -> {error, Error, State}
+      end;
+    Error -> {error, Error, State}
   end.
 
--spec delete(safe_bunny:queue_id()) -> ok|term().
-delete(_Id) ->
-  case eredis:q(redis_name(), [<<"LPOP">>, ?SB_CFG:redis_key()]) of
-    {ok, _} -> ok;
-    Error -> Error
+-spec delete(?SB:queue_id(), ?SBC:callback_state()) -> ?SBC:callback_result().
+delete(_Id, State) ->
+  case exec(<<"RPOP">>, [safe_bunny_common_redis:key_queue()]) of
+    {ok, _} -> {ok, State};
+    Error -> {error, Error, State}
   end.
+
+-spec failed(?SB:queue_id(), ?SBC:callback_state()) -> ?SBC:callback_result().
+failed(Id, State) ->
+  QKey = safe_bunny_common_redis:key_queue(),
+  case exec([
+    [<<"MULTI">>],
+    [<<"HINCRBY">>, safe_bunny_common_redis:key_message(Id), <<"attempts">>, <<"1">>],
+    [<<"RPOPLPUSH">>, QKey, QKey],
+    [<<"EXEC">>]
+  ]) of
+    Results when is_list(Results) ->
+      case safe_bunny_common_redis:assert_transaction_result(Results) of
+        ok -> {ok, State};
+        {error, Error_} -> {error, Error_, State}
+      end;
+    Error -> {error, Error, State}
+  end.
+
+-spec success(?SB:queue_id(), ?SBC:callback_state()) -> ?SBC:callback_result().
+success(Id, State) ->
+  delete(Id, State).
 
 -spec terminate(term(), state()) -> ok.
 terminate(_Reason, _State) ->
@@ -83,3 +126,18 @@ terminate(_Reason, _State) ->
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 redis_name() ->
   list_to_atom(atom_to_list(?MODULE) ++ "_redis" ).
+
+exec(Cmd, Args) ->
+  eredis:q(redis_name(), [Cmd|Args]).
+
+exec(Cmds) ->
+  eredis:qp(redis_name(), Cmds).
+
+kvs_to_proplist(KVs) ->
+  kvs_to_proplist(KVs, []).
+
+kvs_to_proplist([], Acc) ->
+  Acc;
+
+kvs_to_proplist([K, V|Rest], Acc) ->
+  kvs_to_proplist(Rest, [{K, V}|Acc]).

@@ -56,11 +56,16 @@ init(Options) ->
 	ok = emysql:add_pool(?MODULE, PoolSize, User, Pass, Host, Port, Db, utf8),
   #ok_packet{} = emysql:execute(?MODULE, ?CREATE_TABLE_SQL(Table)),
   ok = emysql:prepare(new_item, lists:flatten([
-    "INSERT INTO `", Table, "` (`data`) VALUES(?)"
+    "INSERT INTO `", Table, "` (`uuid`, `exchange`, `key`, `payload`) VALUES(?,?,?,?)"
   ])),
   ok.
 
--spec queue(safe_bunny:queue_payload()) -> ok|term().
-queue(Payload) ->
-  #ok_packet{} = emysql:execute(?MODULE, new_item, [Payload]),
+-spec queue(safe_bunny_message:queue_payload()) -> ok|term().
+queue(Message) ->
+  #ok_packet{} = emysql:execute(?MODULE, new_item, [
+    safe_bunny_message:id(Message),
+    safe_bunny_message:exchange(Message),
+    safe_bunny_message:key(Message),
+    base64:encode(safe_bunny_message:payload(Message))
+  ]),
   ok.

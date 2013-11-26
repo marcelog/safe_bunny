@@ -1,4 +1,4 @@
-%%% @doc ETS to RabbitMQ.
+%%% @doc Common stuff for redis producer/consumer.
 %%%
 %%% Copyright 2012 Marcelo Gornstein &lt;marcelog@@gmail.com&gt;
 %%%
@@ -17,13 +17,11 @@
 %%% @copyright Marcelo Gornstein <marcelog@gmail.com>
 %%% @author Marcelo Gornstein <marcelog@gmail.com>
 %%%
--module(safe_bunny_consumer_ets).
+-module(safe_bunny_common_redis).
 -author("marcelog@gmail.com").
 -github("https://github.com/marcelog").
 -homepage("http://marcelog.github.com/").
 -license("Apache License 2.0").
-
--behavior(safe_bunny_consumer).
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%% Required Types.
@@ -31,51 +29,51 @@
 -include("safe_bunny.hrl").
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%%% Types.
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
--record(state, {}).
--type state():: #state{}.
--define(SB, safe_bunny).
--define(SBC, safe_bunny_consumer).
-
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%% Exports.
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%%% safe_bunny_consumer behavior.
--export([next/1, delete/2]).
--export([failed/2, success/2]).
--export([init/1, terminate/2]).
+%%% Public API.
+-export([key_queue/0, key_message/1]).
+-export([key/1]).
+-export([assert_transaction_result/1]).
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%%% Behavior definition.
+%%% Public API.
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
--spec init(?SBC:options()) -> {ok, state()}|{error, term()}.
-init(_Options) ->
-  {ok, []}.
+-spec key_queue() -> binary().
+key_queue() ->
+  key([<<"queue">>]).
 
--spec next(?SBC:callback_state()) -> ?SB:queue_fetch_result().
-next(State) ->
-  case ets:first(?SB_CFG:ets_name()) of
-  	'$end_of_table' -> {ok, none, State};
-  	Id -> case ets:lookup(?SB_CFG:ets_name(), Id) of
-  		[] -> {ok, none, State};
-      [{Ts, Message}] -> {ok, Ts, Message, State}
-    end
-  end.
+-spec key_message(binary()|string()) -> binary().
+key_message(Id) ->
+  key([<<"item">>, Id]).
 
--spec delete(?SB:queue_id(), ?SBC:callback_state()) -> ?SBC:callback_result().
-delete(Id, State) ->
-  ets:delete(?SB_CFG:ets_name(), Id),
-  {ok, State}.
+-spec key([string()|binary()]) -> binary().
+key(Components) ->
+  bin_join([?SB_CFG:redis_key_prefix()|Components]).
 
--spec success(?SB:queue_id(), ?SBC:callback_state()) -> ?SBC:callback_result().
-success(Id, State) ->
-  delete(Id, State).
+assert_transaction_result([]) ->
+  ok;
 
--spec failed(?SB:queue_id(), ?SBC:callback_state()) -> ?SBC:callback_result().
-failed(_Id, State) ->
-  {ok, State}.
+assert_transaction_result([{ok, _}|Results]) ->
+  assert_transaction_result(Results);
 
--spec terminate(term(), state()) -> ok.
-terminate(_Reason, _State) ->
-  ok.
+assert_transaction_result([{error, Error}|_]) ->
+  {error, Error}.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%% Private API.
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+bin_join(Binaries) ->
+  bin_join(Binaries, <<>>).
+
+bin_join([], Acc) ->
+  Acc;
+
+bin_join([B|Rest], Acc) when is_list(B) ->
+  bin_join([list_to_binary(B)|Rest], Acc);
+
+bin_join([B|Rest], <<>>) ->
+  bin_join(Rest, <<B/binary>>);
+
+bin_join([B|Rest], Acc) ->
+  bin_join(Rest, <<Acc/binary, ":", B/binary>>).

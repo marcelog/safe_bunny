@@ -43,9 +43,9 @@
 init(_Options) ->
   ok.
 
--spec queue(safe_bunny:queue_payload()) -> ok|term().
-queue(Payload) ->
-  case ets:insert(?SB_CFG:ets_name(), {make_ref(), Payload}) of
-    true -> ok;
-    Error -> Error
-  end.
+-spec queue(safe_bunny_message:queue_payload()) -> ok|term().
+queue(Message) ->
+  {Mega, Secs, Micro} = os:timestamp(),
+  Ts = Mega * 1000000000000 + Secs * 1000000 + Micro,
+  true = ets:insert(?SB_CFG:ets_name(), {Ts, Message}),
+  ok.
