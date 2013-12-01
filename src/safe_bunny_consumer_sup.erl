@@ -63,7 +63,7 @@ init([]) ->
 %%% Private API.
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 consumer_def(BackendName) ->
-  Module = list_to_atom("safe_bunny_consumer_" ++ atom_to_list(BackendName)),
+  Module = safe_bunny:consumer_module(BackendName),
   {Module,
     {safe_bunny_consumer, start_link, [?SB_CFG:BackendName(), Module]},
     permanent, brutal_kill, worker, [Module]

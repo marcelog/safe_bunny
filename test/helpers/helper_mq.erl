@@ -24,9 +24,9 @@
 %%% Exports.
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%% Public API.
--export([start/1, stop/1]).
+-export([start/1, start_listening/2, stop/1]).
 -export([exchange/0]).
--export([notify_when/3, queue/2, deliver_unsafe/2, messages/1]).
+-export([notify_when/3, queue/2, deliver_unsafe/2, deliver_safe/2, messages/1]).
 
 %%% gen_server callbacks.
 -export([
@@ -39,7 +39,11 @@
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 -spec start(binary()) -> {ok, pid()}|{error, term()}.
 start(RoutingKey) ->
-  gen_server:start(?MODULE, [RoutingKey], []).
+  gen_server:start(?MODULE, [RoutingKey, []], []).
+
+-spec start_listening(binary(), [term()]) -> {ok, pid()}|{error, term()}.
+start_listening(RoutingKey, Listeners) ->
+  gen_server:start(?MODULE, [RoutingKey, Listeners], []).
 
 -spec stop(pid()) -> ok.
 stop(Server) ->
@@ -73,7 +77,7 @@ notify_when(Server, Payload, Pid) ->
 %%% gen_server API.
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 -spec init([term()]) -> {ok, state()}.
-init([RoutingKey]) ->
+init([RoutingKey, Listeners]) ->
   Config = ?SB_CFG:mq(),
   Get = fun
     ({s, X}) ->
@@ -97,7 +101,10 @@ init([RoutingKey]) ->
       auto_delete = true
     }
   ),
-  #'queue.declare_ok'{queue = Queue} = amqp_channel:call(Channel, #'queue.declare'{}),
+  #'queue.declare_ok'{queue = Queue} = amqp_channel:call(Channel, #'queue.declare'{
+    durable = false,
+    auto_delete = true  
+  }),
   Binding = #'queue.bind'{
     queue = Queue,
     exchange = exchange(),
@@ -107,7 +114,7 @@ init([RoutingKey]) ->
   #'basic.consume_ok'{consumer_tag = _Tag} = amqp_channel:subscribe(
     Channel, #'basic.consume'{queue = Queue}, self()
   ),
-  {ok, #state{channel = Channel, connection = Connection}}.
+  {ok, #state{channel = Channel, connection = Connection, notify_when = Listeners}}.
 
 -spec handle_cast(term(), state()) -> {noreply, state()}.
 handle_cast(Msg, State) ->

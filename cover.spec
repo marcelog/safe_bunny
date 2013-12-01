@@ -4,6 +4,7 @@
   safe_bunny_producer,
 
   helper_mq,
+  helper_backend_tests,
   helper_utils,
 
   bunny_SUITE,

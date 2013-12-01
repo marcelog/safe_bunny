@@ -42,8 +42,10 @@
 %%% Exports.
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%% safe_bunny_consumer behavior.
--export([next/1, delete/2]).
--export([failed/2, success/2]).
+-export([next/2]).
+-export([delete/1]).
+%-export([flush/1]).
+-export([failed/1, success/1]).
 -export([init/1, terminate/2]).
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -53,51 +55,55 @@
 init(_Options) ->
   {ok, []}.
 
--spec next(?SBC:callback_state()) -> ?SB:queue_fetch_result().
-next(State) ->
+-spec next(pos_integer(), ?SBC:callback_state()) -> ?SB:queue_fetch_result().
+next(Total, State) ->
   try
-  	case filelib:fold_files(
-      ?SB_CFG:file_directory(), ".*", false, fun(Filename, _Acc) ->
-        {ok, Payload} = file:read_file(Filename),
-        throw({got_one, Filename, Payload})
+    case filelib:fold_files(
+      ?SB_CFG:file_directory(), ".*", false, fun(Filename, Acc) ->
+        case length(Acc) of
+          Len when Len =:= Total -> throw({done, Acc});
+          _ ->
+            {ok, Payload} = file:read_file(Filename),
+            [_Ts, Id, Exchange, Key, Attempts] = string:tokens(filename:basename(Filename), "."),
+            Message = safe_bunny_message:new(
+              list_to_binary(Id),
+              list_to_binary(Exchange),
+              list_to_binary(Key),
+              Payload,
+              list_to_integer(Attempts)
+            ),
+            [{Filename, Message}|Acc]
+        end
       end, []) of
-      [] -> {ok, none, State};
+      Files when is_list(Files) -> {ok, lists:reverse(Files), State};
       ErrorInDir -> {error, ErrorInDir, State}
     end
   catch
-    _:{got_one, Filename, Payload} ->
-      [_Ts, Id, Exchange, Key, Attempts] = string:tokens(filename:basename(Filename), "."),
-      {ok, Filename, safe_bunny_message:new(
-        list_to_binary(Id),
-        list_to_binary(Exchange),
-        list_to_binary(Key),
-        Payload,
-        list_to_integer(Attempts)
-      ), State};
+    _:{done, Ret} -> {ok, lists:reverse(Ret), State};
     _:Error -> {error, Error}
   end.
 
--spec failed(?SB:queue_id(), ?SBC:callback_state()) -> ?SBC:callback_result().
-failed(Id, State) ->
-  Basename = filename:basename(Id),
-  [Ts, Hash, Attempts] = string:tokens(Basename, "-"),
+-spec failed(?SB:queue_id()) -> ?SBC:callback_result().
+failed(Filename) ->
+  Basename = filename:basename(Filename),
+  [Ts, Id, Exchange, Key, Attempts] = string:tokens(filename:basename(Basename), "."),
   NewAttempts = integer_to_list(list_to_integer(Attempts) + 1),
-  NewName = filename:dirname(Id) ++ "/" ++ Ts ++ "-" ++ Hash ++ "-" ++ NewAttempts,
-  case file:rename(Id, NewName) of
-    ok -> {ok, State};
-    Error -> {error, Error, State}
-  end.
+  Directory = ?SB_CFG:file_directory(),
+  NewName = Directory ++ "/" ++ string:join([Ts, Id, Exchange, Key, NewAttempts], "."),
+  file:rename(Filename, NewName).
 
--spec success(?SB:queue_id(), ?SBC:callback_state()) -> ?SBC:callback_result().
-success(Id, State) ->
-  delete(Id, State).
+-spec success(?SB:queue_id()) -> ?SBC:callback_result().
+success(Id) ->
+  delete(Id).
 
--spec delete(?SB:queue_id(), ?SBC:callback_state()) -> ?SBC:callback_result().
-delete(Id, State) ->
-  case file:delete(Id) of
-    ok -> {ok, State};
-    Error -> {error, Error, State}
-  end.
+-spec delete(?SB:queue_id()) -> ?SBC:callback_result().
+delete(Id) ->
+  file:delete(Id).
+
+%-spec flush(callback_state()) ->
+%  {ok, callback_state()}|{error, term(), callback_state()}.
+%flush(State) ->
+%  {error, not_supported, State};
 
 -spec terminate(term(), state()) -> ok.
 terminate(_Reason, _State) ->

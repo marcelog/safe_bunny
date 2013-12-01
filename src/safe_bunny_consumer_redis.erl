@@ -44,8 +44,10 @@
 %%% Exports.
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%% safe_bunny_consumer behavior.
--export([next/1, delete/2]).
--export([failed/2, success/2]).
+-export([next/2]).
+-export([delete/1]).
+%-export([flush/1]).
+-export([failed/1, success/1]).
 -export([init/1, terminate/2]).
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -61,61 +63,58 @@ init(Options) ->
   {ok, _} = exec(<<"select">>, [Db]),
   {ok, #state{eredis=Pid}}.
 
--spec next(?SBC:callback_state()) ->
+-spec next(pos_integer(), ?SBC:callback_state()) ->
   {ok, ?SB:queue_fetch_result(), ?SBC:callback_state()}
   | {error, term(), ?SBC:callback_state()}.
-next(State) ->
+next(Total, State) ->
   case exec(
-    <<"LINDEX">>, [safe_bunny_common_redis:key_queue(), <<"-1">>]
+    <<"SRANDMEMBER">>,
+    [safe_bunny_common_redis:key_queue(), list_to_binary(integer_to_list(Total))]
   ) of
-    {ok, undefined} -> {ok, none, State};
-    {ok, MessageId} ->
-      case exec(<<"HGETALL">>, [safe_bunny_common_redis:key_message(MessageId)]) of
-        {ok, []} ->
-          lager:warning("Item deleted? ~p", [MessageId]),
-          delete(MessageId, State),
-          next(State);
-        {ok, KVs} ->
-          Message = kvs_to_proplist(KVs),
-          {ok, 1, safe_bunny_message:new(
-            proplists:get_value(<<"id">>, Message),
-            proplists:get_value(<<"exchange">>, Message),
-            proplists:get_value(<<"key">>, Message),
-            proplists:get_value(<<"payload">>, Message),
-            list_to_integer(binary_to_list(proplists:get_value(<<"attempts">>, Message)))
-          ), State};
-        Error -> {error, Error, State}
-      end;
+    {ok, undefined} -> {ok, [], State};
+    {ok, MessageIds} when is_list(MessageIds) ->
+      {ok, lists:map(
+        fun(MessageId) ->
+          case get_task(MessageId) of
+            {error, Error} -> throw({error, Error});
+            {ok, Message} -> {MessageId, Message}
+          end
+        end,
+        MessageIds
+      ), State};
     Error -> {error, Error, State}
   end.
 
--spec delete(?SB:queue_id(), ?SBC:callback_state()) -> ?SBC:callback_result().
-delete(_Id, State) ->
-  case exec(<<"RPOP">>, [safe_bunny_common_redis:key_queue()]) of
-    {ok, _} -> {ok, State};
-    Error -> {error, Error, State}
+-spec delete(?SB:queue_id()) -> ?SBC:callback_result().
+delete(Id) ->
+  case exec(<<"SREM">>, [safe_bunny_common_redis:key_queue(), Id]) of
+    {ok, _MessageId} -> exec(<<"DEL">>, [safe_bunny_common_redis:key_message(Id)]);
+    Error -> {error, Error}
   end.
 
--spec failed(?SB:queue_id(), ?SBC:callback_state()) -> ?SBC:callback_result().
-failed(Id, State) ->
+-spec failed(?SB:queue_id()) -> ?SBC:callback_result().
+failed(Id) ->
   QKey = safe_bunny_common_redis:key_queue(),
   case exec([
     [<<"MULTI">>],
     [<<"HINCRBY">>, safe_bunny_common_redis:key_message(Id), <<"attempts">>, <<"1">>],
-    [<<"RPOPLPUSH">>, QKey, QKey],
     [<<"EXEC">>]
   ]) of
-    Results when is_list(Results) ->
-      case safe_bunny_common_redis:assert_transaction_result(Results) of
-        ok -> {ok, State};
-        {error, Error_} -> {error, Error_, State}
-      end;
-    Error -> {error, Error, State}
+    Results when is_list(Results) -> safe_bunny_common_redis:assert_transaction_result(Results);
+    Error -> {error, Error}
   end.
 
--spec success(?SB:queue_id(), ?SBC:callback_state()) -> ?SBC:callback_result().
-success(Id, State) ->
-  delete(Id, State).
+%-spec flush(callback_state()) ->
+%  {ok, callback_state()}|{error, term(), callback_state()}.
+%flush(State) ->
+%  case exec([<<"DEL">>, safe_bunny_common_redis:key_queue()]) of
+%    {ok, _} -> {ok, State};
+%    {error, Error} -> {error, Error, State}
+%  end.
+
+-spec success(?SB:queue_id()) -> ?SBC:callback_result().
+success(Id) ->
+  delete(Id).
 
 -spec terminate(term(), state()) -> ok.
 terminate(_Reason, _State) ->
@@ -141,3 +140,19 @@ kvs_to_proplist([], Acc) ->
 
 kvs_to_proplist([K, V|Rest], Acc) ->
   kvs_to_proplist(Rest, [{K, V}|Acc]).
+
+-spec get_task(binary()) -> not_found|{ok, term()}|{error, term()}.
+get_task(Id) ->
+  case exec(<<"HGETALL">>, [safe_bunny_common_redis:key_message(Id)]) of
+    {ok, []} -> not_found;
+    {ok, KVs} ->
+      Message = kvs_to_proplist(KVs),
+      {ok, safe_bunny_message:new(
+        proplists:get_value(<<"id">>, Message),
+        proplists:get_value(<<"exchange">>, Message),
+        proplists:get_value(<<"key">>, Message),
+        proplists:get_value(<<"payload">>, Message),
+        list_to_integer(binary_to_list(proplists:get_value(<<"attempts">>, Message)))
+      )};
+    Error -> {error, Error}
+  end.

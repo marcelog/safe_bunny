@@ -31,16 +31,17 @@
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 -type callback_state():: term().
 -type options():: proplists:proplist().
--type callback_result()::
-  {ok, callback_state()}|{error, term(), callback_state()}.
+-type callback_result():: ok|{error, term()}.
 
 -record(state, {
-  callback = undefined:: module(),
-  callback_state = undefined:: callback_state(),
-  consumer_poll = undefined:: pos_integer(),
-  backoff_intervals = []:: [pos_integer()],
+  callback = undefined:: undefined|module(),
+  callback_state = undefined:: undefined|callback_state(),
+  poll_intervals = []:: [pos_integer()],
   current_intervals = []:: [pos_integer()],
-  maximum_retries = undefined:: pos_integer()
+  maximum_retries = undefined:: undefined|pos_integer(),
+  concurrent_deliveries = undefined:: undefined|pos_integer(),
+  current_tasks = []:: [binary()],
+  poll_timer = undefined:: undefined|term()
 }).
 
 -type state():: #state{}.
@@ -52,13 +53,15 @@
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 -callback init(options()) -> {ok, state()}|{error, term()}.
 
--callback next(callback_state()) ->
+%-callback flush(callback_state()) ->
+%  {ok, callback_state()}|{error, term(), callback_state()}.
+-callback next(pos_integer(), callback_state()) ->
   {ok, safe_bunny:queue_fetch_result(), callback_state()}
   |{error, term(), callback_state()}.
 
--callback failed(safe_bunny:queue_id(), callback_state()) -> callback_result().
--callback success(safe_bunny:queue_id(), callback_state()) -> callback_result().
--callback delete(safe_bunny:queue_id(), callback_state()) -> callback_result().
+-callback failed(safe_bunny:queue_id()) -> callback_result().
+-callback success(safe_bunny:queue_id()) -> callback_result().
+-callback delete(safe_bunny:queue_id()) -> callback_result().
 -callback terminate(any(), state()) -> ok.
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -66,6 +69,7 @@
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%% Public API.
 -export([start_link/2]).
+-export([run_task_task/3]).
 
 %%% gen_server callbacks.
 -export([
@@ -87,17 +91,18 @@ start_link(Config, Module) ->
 -spec init([term()]) -> {ok, state()}.
 init([Config, Module]) ->
   {ok, CallbackState} = Module:init(Config),
-  PollTime = proplists:get_value(consumer_poll, Config),
-  BackoffIntervals = proplists:get_value(backoff_intervals, Config),
+  PollIntervals = proplists:get_value(poll_intervals, Config),
   MaxRetries = proplists:get_value(maximum_retries, Config),
-  erlang:send_after(PollTime, self(), poll),
+  ConcurrentDeliveries = proplists:get_value(concurrent_deliveries, Config),
+  PollTimer = erlang:send_after(hd(PollIntervals), self(), poll),
   {ok, #state{
     callback = Module,
     callback_state = CallbackState,
-    consumer_poll = PollTime,
-    backoff_intervals = BackoffIntervals,
-    current_intervals = BackoffIntervals,
-    maximum_retries = MaxRetries
+    poll_intervals = PollIntervals,
+    current_intervals = PollIntervals,
+    maximum_retries = MaxRetries,
+    concurrent_deliveries = ConcurrentDeliveries,
+    poll_timer = PollTimer
   }, hibernate}.
 
 -spec handle_cast(any(), state()) -> {noreply, state()}.
@@ -106,46 +111,83 @@ handle_cast(Msg, State) ->
   {noreply, State, hibernate}.
 
 -spec handle_info(any(), state()) -> {noreply, state()}.
-handle_info(poll, State=#state{callback = Module}) ->
-  {OpResult, NewCallbackState} = case Module:next(State#state.callback_state) of
-    {ok, none, NewCallbackState_} -> {ok, NewCallbackState_};
-    {ok, QueueId, Message, NewCallbackState_} ->
-      Id = safe_bunny_message:id(Message),
-      Exchange = safe_bunny_message:exchange(Message),
-      Key = safe_bunny_message:key(Message),
-      Payload = safe_bunny_message:payload(Message),
-      Attempts = safe_bunny_message:attempts(Message),
-      lager:debug(
-        "~p: Processing queued item for: ~p:~p: id: ~p:~p",
-        [Module, Exchange, Key, Id, Payload]
-      ),
-      case safe_bunny_worker:deliver(true, Exchange, Key, Payload) of
-        ok -> Module:success(QueueId, NewCallbackState_);
-        PreOpResult ->
-          lager:warning("~p: Could not dispatch queued item into mq: ~p", [Module, PreOpResult]),
-          Module:failed(QueueId, NewCallbackState_),
-          {error, PreOpResult}
-      end;        
-    Error ->
-      lager:error("~p: Could not poll queue (1): ~p", [Module, Error]),
-      Error
-  end,
-  {NextPoll, NewState} = case OpResult of
+handle_info({'DOWN', _MQRef, process, _MQPid, _Reason}, State) ->
+  %lager:debug("process finished: ~p", [Reason]),
+  {noreply, State, hibernate};
+
+handle_info({task_ended, {QueueId, Task}, Result}, State) ->
+  Module = State#state.callback,
+  Attempts = safe_bunny_message:attempts(Task) + 1,
+  NewState = case Result of
     ok ->
-      {
-        State#state.consumer_poll,
-        State#state{current_intervals = State#state.backoff_intervals}
-      };
-    OpError ->
-      {NextPoll_, NextIntervals} = case State#state.current_intervals of
-        [Last] -> {Last, State#state.current_intervals};
-        [N|Rest] -> {N, Rest}
-      end,
-      lager:warning("~p: Retrying in ~pms due to: ~p", [State#state.callback, NextPoll_, OpError]),
-      {NextPoll_, State#state{current_intervals = NextIntervals}}
+      Module:success(QueueId),
+      State;
+    Result when Attempts >= State#state.maximum_retries ->
+      lager:warning("~p: Dropping item because of max attempts: ~p: ~p", [Module, Result, Task]),
+      Module:delete(QueueId),
+      State;
+    not_available ->
+      % Don't blame this ones on the task. Also, try to back off.
+      lager:warning("~p: MQ Not available", [Module]),
+      erlang:cancel_timer(State#state.poll_timer),
+      PollTime = hd(lists:reverse(State#state.poll_intervals)),
+      lager:warning(
+        "~p: Retrying in ~pms due to mq not available", [State#state.callback, PollTime]
+      ),
+      PollTimer = erlang:send_after(PollTime, self(), poll),
+      State#state{poll_timer = PollTimer};
+    never_acked ->
+      lager:warning("~p: MQ Did not ack message: ~p", [QueueId, Module]),
+      Module:failed(QueueId),
+      State;
+    Result ->
+      lager:warning("~p: MQ Error: ~p", [Module, Result]),
+      Module:failed(QueueId),
+      State
   end,
-  erlang:send_after(NextPoll, self(), poll),
-  {noreply, NewState#state{callback_state = NewCallbackState}, hibernate};
+  NewCurrentTasks = State#state.current_tasks -- [QueueId],
+  {noreply, NewState#state{current_tasks = NewCurrentTasks}, hibernate};
+
+handle_info(poll, State=#state{
+  callback = Module,
+  callback_state = CallbackState
+}) ->
+  TotalNextTasks = State#state.concurrent_deliveries - length(State#state.current_tasks),
+  {OpResult, NewCallbackState} = case Module:next(TotalNextTasks, CallbackState) of
+    {ok, NextTasks_, NewCallbackState_} -> {NextTasks_, NewCallbackState_};
+    {error, Error, NewCallbackState_} ->
+      lager:error("~p: Could not poll queue (1): ~p", [Module, Error]),
+      {error, NewCallbackState_}
+  end,
+  {NextPoll, NewState} = try
+    case OpResult of
+      NextTasks when is_list(NextTasks) ->
+        case run_tasks(NextTasks, State#state{callback_state = NewCallbackState}) of
+          {ok, NewState_} -> {
+            hd(NewState_#state.poll_intervals),
+            NewState_#state{current_intervals = NewState_#state.poll_intervals}
+          };
+          Error1 -> throw(Error1)
+        end;
+      Error2 -> throw(Error2)
+    end
+  catch
+    _:OpError ->
+        {NextPoll_, NextIntervals} = case State#state.current_intervals of
+          [Last] -> {Last, State#state.current_intervals};
+          [N|Rest] -> {N, Rest}
+        end,
+        lager:warning(
+          "~p: Retrying in ~pms due to: ~p (~p)",
+          [State#state.callback, NextPoll_, OpError, erlang:get_stacktrace()]
+        ),
+        {NextPoll_, State#state{poll_intervals = NextIntervals}}
+  end,
+  PollTimer = erlang:send_after(NextPoll, self(), poll),
+  {noreply, NewState#state{
+    callback_state = NewCallbackState,
+    poll_timer = PollTimer
+  }, hibernate};
 
 handle_info(Msg, State) ->
   lager:error("Invalid msg: ~p", [Msg]),
@@ -169,3 +211,46 @@ code_change(_OldVsn, State, _Extra) ->
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%% Private API.
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+run_tasks([], State) ->
+  {ok, State};
+
+run_tasks(
+  [{QueueId, Task}|Rest],
+  State=#state{
+    callback = Module,
+    current_tasks = CurrentTasks
+  }
+) ->
+  {Result, NewCurrentTasks} = case lists:member(QueueId, CurrentTasks) of
+    false -> case cxy_ctl:maybe_execute_pid_monitor(
+      Module, ?MODULE, run_task_task, [self(), Module, {QueueId, Task}]
+    ) of
+      {max_pids, _MaxCount} ->
+        {max_pids, CurrentTasks};
+      {Pid, Reference} when is_pid(Pid) andalso is_reference(Reference) ->
+        {ok, [QueueId|CurrentTasks]}
+    end;
+    true -> {ok, CurrentTasks}
+  end,
+  case Result of
+    max_pids -> {max_pids, State};
+    _ -> run_tasks(Rest, State#state{current_tasks = NewCurrentTasks})
+  end.
+
+%% @doc Will actually send a message to Controller to yield the result.
+-spec run_task_task(
+  pid(), atom(), {safe_bunny:queue_id(), safe_bunny:queue_payload()}
+) -> ok.
+run_task_task(Controller, Module, {QueueId, Task}) ->
+  Id = safe_bunny_message:id(Task),
+  Exchange = safe_bunny_message:exchange(Task),
+  Key = safe_bunny_message:key(Task),
+  Payload = safe_bunny_message:payload(Task),
+  Attempts = safe_bunny_message:attempts(Task),
+  lager:debug(
+    "~p: Processing queued item for: ~p:~p: id: ~p:~p / ~p attempts",
+    [Module, Exchange, Key, Id, Payload, Attempts]
+  ),
+  Result = safe_bunny_worker:deliver(true, Exchange, Key, Payload),
+  Controller ! {task_ended, {QueueId, Task}, Result},
+  ok.

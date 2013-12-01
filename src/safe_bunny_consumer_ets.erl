@@ -42,8 +42,10 @@
 %%% Exports.
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%% safe_bunny_consumer behavior.
--export([next/1, delete/2]).
--export([failed/2, success/2]).
+-export([next/2]).
+-export([delete/1]).
+%-export([flush/1]).
+-export([failed/1, success/1]).
 -export([init/1, terminate/2]).
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -53,28 +55,51 @@
 init(_Options) ->
   {ok, []}.
 
--spec next(?SBC:callback_state()) -> ?SB:queue_fetch_result().
-next(State) ->
+-spec next(pos_integer(), ?SBC:callback_state()) -> ?SB:queue_fetch_result().
+next(Total, State) ->
+  next(Total, State, 0, []).
+
+next(Total, State, Total, Acc) ->
+  {ok, lists:reverse(Acc), State};
+
+next(Total, State, 0, Acc) ->
   case ets:first(?SB_CFG:ets_name()) of
-  	'$end_of_table' -> {ok, none, State};
-  	Id -> case ets:lookup(?SB_CFG:ets_name(), Id) of
-  		[] -> {ok, none, State};
-      [{Ts, Message}] -> {ok, Ts, Message, State}
-    end
+    '$end_of_table' -> next(Total, State, Total, Acc);
+    Id ->
+      % No concurrent consumers
+      [{_Ts, Message}] = ets:lookup(?SB_CFG:ets_name(), Id),
+      next(Total, State, 1, [{Id, Message}])
+  end;
+
+next(Total, State, SoFar, [Last|_] = Acc) ->
+  case ets:next(?SB_CFG:ets_name(), Last) of
+    '$end_of_table' -> next(Total, State, Total, Acc);
+    Id ->
+      % No concurrent consumers
+      [{_Ts, Message}] = ets:lookup(?SB_CFG:ets_name(), Id),
+      next(Total, State, SoFar + 1, [{Id, Message}|Acc])
   end.
 
--spec delete(?SB:queue_id(), ?SBC:callback_state()) -> ?SBC:callback_result().
-delete(Id, State) ->
+-spec delete(?SB:queue_id()) -> ?SBC:callback_result().
+delete(Id) ->
   ets:delete(?SB_CFG:ets_name(), Id),
-  {ok, State}.
+  ok.
 
--spec success(?SB:queue_id(), ?SBC:callback_state()) -> ?SBC:callback_result().
-success(Id, State) ->
-  delete(Id, State).
+-spec success(?SB:queue_id()) -> ?SBC:callback_result().
+success(Id) ->
+  delete(Id).
 
--spec failed(?SB:queue_id(), ?SBC:callback_state()) -> ?SBC:callback_result().
-failed(_Id, State) ->
-  {ok, State}.
+-spec failed(?SB:queue_id()) -> ?SBC:callback_result().
+failed(_Id) ->
+  ok.
+
+%-spec flush(callback_state()) ->
+%  {ok, callback_state()}|{error, term(), callback_state()}.
+%flush(State) ->
+%  case ets:delete_all_objects(?SB_CFG:ets_name()) of
+%    true -> {ok, State};
+%    Error -> {error, Error, State}
+%  end.
 
 -spec terminate(term(), state()) -> ok.
 terminate(_Reason, _State) ->

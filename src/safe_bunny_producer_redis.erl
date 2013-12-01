@@ -103,7 +103,7 @@ handle_call({queue, Message}, _From, #state{eredis=C} = State) ->
     [<<"HSET">>, Key, "key", safe_bunny_message:key(Message)],
     [<<"HSET">>, Key, "payload", safe_bunny_message:payload(Message)],
     [<<"HSET">>, Key, "attempts", safe_bunny_message:attempts(Message)],
-    [<<"LPUSH">>, safe_bunny_common_redis:key_queue(), Id],
+    [<<"SADD">>, safe_bunny_common_redis:key_queue(), Id],
     [<<"EXEC">>]
   ])),
   {reply, Ret, State};

@@ -79,7 +79,7 @@ doc:
 
 # This one runs without a release.
 shell: fastcompile
-	${ERL} ${ERLARGS} -boot sasl -config priv/example -s safe_bunny -name safe_bunny@${HOST}
+	${ERL} ${ERLARGS} -boot sasl -config ${ROOT}/priv/example -s safe_bunny -name safe_bunny@${HOST}
 
 # Intended to be run by a CI server.
 test: compile #analyze

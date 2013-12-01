@@ -42,10 +42,19 @@
   safe_bunny
 ]).
 
+-type queue_id():: term().
+-type queue_message():: term().
+-type queue_element():: {queue_id(), queue_message()}.
 -type queue_fetch_result():: {
-  ok, term(), safe_bunny_message:message(), safe_bunny_consumer:callback_state()
+  ok, queue_element(), safe_bunny_consumer:callback_state()
 }.
--export_type([queue_fetch_result/0]).
+
+-export_type([
+  queue_id/0,
+  queue_message/0,
+  queue_element/0,
+  queue_fetch_result/0
+]).
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%% Exports.

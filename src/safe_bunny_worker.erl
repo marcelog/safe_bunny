@@ -37,8 +37,8 @@
 %%% Types.
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 -record(state, {
-  channel = undefined:: pid(),
-  channel_ref = undefined:: reference(),
+  channel = undefined:: undefined|pid(),
+  channel_ref = undefined:: undefined|reference(),
   spawned_tasks = []:: [{pid(), reference()}],
   config = []:: proplists:proplist(),
   available = false:: boolean()
@@ -94,7 +94,10 @@ handle_info(connect, State) ->
   end,
   ChannelRef = case Channel of
     _ when is_pid(Channel) -> erlang:monitor(process, Channel);
-    _ -> erlang:send_after(5000, self(), connect), undefined
+    _ -> erlang:send_after(
+      proplists:get_value(reconnect_timeout, State#state.config), self(), connect
+    ),
+    undefined
   end,
   Available = is_pid(Channel) andalso ChannelRef =/= undefined,
   {noreply, State#state{
@@ -132,15 +135,16 @@ handle_call(
   {reply, not_available, State};
 
 handle_call({deliver, {Safe, Exchange, Key, Payload}}, _From, State=#state{channel = Channel}) ->
-  {Pid, Ref} = spawn_monitor(
-    fun() -> ok = publish(Channel, Safe, Exchange, Key, Payload)
+  {Pid, Ref} = spawn_monitor(fun() ->
+    exit(publish(Channel, Safe, Exchange, Key, Payload))
   end),
   Ret = receive
     {'DOWN', Ref, process, Pid, Reason} -> case Reason of
-      normal -> ok;
+      ok -> ok;
       Error -> Error
     end
   end,
+  lager:debug("Delivery ended with: ~p", [Ret]),
   {reply, Ret, State};
 
 handle_call(Req, _From, State) ->

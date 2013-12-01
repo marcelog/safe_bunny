@@ -55,7 +55,9 @@ start_link() ->
   {ok, {{supervisor:strategy(),pos_integer(),pos_integer()},[supervisor:child_spec()]}}
   | ignore.
 init([]) ->
-  cxy_ctl:init(?SB_CFG:concurrency_limits()),
+  CxyLimits = ?SB_CFG:concurrency_limits(),
+  lager:debug("Initializing cxy limits: ~p", [CxyLimits]),
+  cxy_ctl:init(CxyLimits),
   % Create ETS table (for ETS producer/consumer), so the sup owns it.
   Ets = ?SB_CFG:ets_name(),
   Ets = ets:new(Ets, [

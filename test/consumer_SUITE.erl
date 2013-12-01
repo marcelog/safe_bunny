@@ -13,15 +13,15 @@ all() -> [
 ].
 
 -spec init_per_testcase(term(), term()) -> void.
-init_per_testcase(TestCase, _Config) ->
+init_per_testcase(TestCase, Config) ->
   application:load(safe_bunny),
   Backends = case TestCase of
-    can_handle_empty_queues -> [mysql, redis, file, ets] ;
+    can_handle_empty_queues -> [mysql, redis, file, ets];
     _ -> []
   end,
   application:set_env(safe_bunny, consumers, Backends),
   application:set_env(safe_bunny, producers, Backends),
-  helper_utils:start().
+  helper_utils:start(TestCase, Config).
 
 -spec end_per_testcase(term(), term()) -> void.
 end_per_testcase(_TestCase, _Config) ->

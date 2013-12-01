@@ -45,9 +45,17 @@
 %% @doc Application concurrency limits.
 -spec concurrency_limits() -> proplists:proplist().
 concurrency_limits() ->
+  ConsumerCxyLimits = lists:map(
+    fun(Consumer) ->
+      ConsumerModule = safe_bunny:consumer_module(Consumer),
+      ConsumerOptions = ?MODULE:Consumer(),
+      cxy_limit(ConsumerModule, proplists:get_value(concurrent_deliveries, ConsumerOptions))
+    end,
+    consumers()
+  ),
   get_option(concurrency_limits, [
-    {?SAFE_BUNNY_MQ_DELIVER_TASK, 50000, 0}
-  ]).
+    cxy_limit(?SAFE_BUNNY_MQ_DELIVER_TASK, 50000)
+  ]) ++ ConsumerCxyLimits.
 
 %% @doc Configured consumers.
 -spec consumers() -> proplists:proplist().
@@ -69,7 +77,8 @@ mq() ->
     {user, "guest"},
     {pass, "guest"},
     {vhost, "/"},
-    {confirm_timeout, 10000}
+    {confirm_timeout, 10000},
+    {reconnect_timeout, 5000}
   ]).
 
 %% @doc Shortcut to get mq confirmation timeout.
@@ -82,9 +91,8 @@ mq_confirm_timeout() ->
 ets() ->
   get_option(ets, [
     {name, safe_bunny_queue},
-    {consumer_poll, 200},
-    {backoff_intervals, [500, 1000, 2000, 4000, 10000, 60000]},
-    {in_order, false},
+    {concurrent_deliveries, 100},
+    {poll_intervals, [500, 1000, 2000, 4000, 10000, 60000]},
     {maximum_retries, 100}
   ]).
 
@@ -98,9 +106,8 @@ ets_name() ->
 file() ->
   get_option(file, [
     {directory, "/tmp/safe_bunny_queue"},
-    {consumer_poll, 200},
-    {backoff_intervals, [500, 1000, 2000, 4000, 10000, 60000]},
-    {in_order, false},
+    {concurrent_deliveries, 100},
+    {poll_intervals, [500, 1000, 2000, 4000, 10000, 60000]},
     {maximum_retries, 100}
   ]).
 
@@ -118,9 +125,8 @@ redis() ->
     {db, 0},
     {key_prefix, "safe_bunny"},
     {producer_connections, 1},
-    {consumer_poll, 200},
-    {backoff_intervals, [500, 1000, 2000, 4000, 10000, 60000]},
-    {in_order, false},
+    {concurrent_deliveries, 100},
+    {poll_intervals, [500, 1000, 2000, 4000, 10000, 60000]},
     {maximum_retries, 100}
   ]).
 
@@ -140,9 +146,8 @@ mysql() ->
     {db, "safe_bunny_queue"},
     {table, "items"},
     {producer_connections, 1},
-    {consumer_poll, 200},
-    {backoff_intervals, [500, 1000, 2000, 4000, 10000, 60000]},
-    {in_order, false},
+    {concurrent_deliveries, 100},
+    {poll_intervals, [500, 1000, 2000, 4000, 10000, 60000]},
     {maximum_retries, 100}
   ]).
 
@@ -163,3 +168,9 @@ get_option(Key, Default) ->
     undefined -> Default;
     {ok, Value} -> Value
   end.
+
+-spec cxy_limit(atom(), pos_integer()) -> {
+  atom(), pos_integer(), pos_integer()
+}.
+cxy_limit(Name, N) ->
+  {Name, N, 0}.
