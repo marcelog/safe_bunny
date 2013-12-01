@@ -4,7 +4,8 @@
   safe_bunny_producer,
 
   helper_mq,
-  
+  helper_utils,
+
   bunny_SUITE,
   consumer_SUITE,
   ets_SUITE,

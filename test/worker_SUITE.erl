@@ -17,13 +17,11 @@ init_per_testcase(_TestCase, _Config) ->
   application:load(safe_bunny),
   application:set_env(safe_bunny, consumers, []),
   application:set_env(safe_bunny, producers, []),
-  ok = safe_bunny:start(),
-  [].
+  helper_utils:start().
 
 -spec end_per_testcase(term(), term()) -> void.
 end_per_testcase(_TestCase, _Config) ->
-  application:stop(safe_bunny),
-  [].
+  helper_utils:stop().
 
 -spec can_deliver([term()]) -> ok.
 can_deliver(_Config) ->

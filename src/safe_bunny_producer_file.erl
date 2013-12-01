@@ -24,6 +24,13 @@
 -license("Apache License 2.0").
 
 -behavior(safe_bunny_producer).
+-behavior(gen_server).
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%% Types.
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+-record(state, {}).
+-type state():: #state{}.
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%% Required Types.
@@ -34,14 +41,24 @@
 %%% Exports.
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%% safe_bunny_producer behavior.
--export([init/1, queue/1]).
+-export([start_link/1, queue/1]).
+
+%%% gen_server callbacks.
+-export([
+  init/1, terminate/2, code_change/3,
+  handle_call/3, handle_cast/2, handle_info/2
+]).
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%% Behavior definition.
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
--spec init(safe_bunny_producer:options()) -> ok|term().
+-spec start_link(safe_bunny_producer:options()) -> {ok, pid()}|ignore|{error, term()}.
+start_link(Options) ->
+  gen_server:start_link({local, ?MODULE}, ?MODULE, Options, []).
+
+-spec init(safe_bunny_producer:options()) -> {ok, state()}|ignore|{error, term()}.
 init(_Options) ->
-  ok.
+  {ok, #state{}}.
 
 -spec queue(safe_bunny_message:queue_payload()) -> ok|term().
 queue(Message) ->
@@ -58,3 +75,30 @@ queue(Message) ->
   Filename = Directory ++ "/" ++ string:join([Ts, Id, Exchange, Key, Attempts], "."),
   ok = filelib:ensure_dir(Filename),
   ok = file:write_file(Filename, Payload).
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%% gen_server API.
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+-spec handle_cast(any(), state()) -> {noreply, state()}.
+handle_cast(_Msg, State) ->
+  {noreply, State}.
+
+-spec handle_info(any(), state()) -> {noreply, state()}.
+handle_info(Unknown, State) ->
+  lager:error("Invalid message: ~p", [Unknown]),
+  {noreply, State}.
+
+-spec handle_call(
+  term(), {pid(), reference()}, state()
+) -> {reply, term() | {invalid_request, term()}, state()}.
+handle_call(Unknown, _From, State) ->
+  lager:error("Invalid request: ~p", [Unknown]),
+  {reply, {invalid_request, Unknown}, State}.
+
+-spec terminate(atom(), state()) -> ok.
+terminate(_Reason, _State) ->
+  ok.
+
+-spec code_change(string(), state(), any()) -> {ok, state()}.
+code_change(_OldVsn, State, _Extra) ->
+  {ok, State}.

@@ -22,13 +22,11 @@ init_per_testcase(_TestCase, _Config) ->
     safe_bunny, redis,
     lists:keystore(consumer_poll, 1, MysqlConfig, {consumer_poll, 500})
   ),
-  ok = safe_bunny:start(),
-	[].
+  helper_utils:start().
 
 -spec end_per_testcase(term(), term()) -> void.
 end_per_testcase(_TestCase, _Config) ->
-  application:stop(safe_bunny),
-  [].
+  helper_utils:stop().
 
 -spec can_deliver([term()]) -> ok.
 can_deliver(_Config) ->

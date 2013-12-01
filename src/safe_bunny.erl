@@ -35,7 +35,10 @@
   compiler,
   syntax_tools,
   lager,
+  crypto,
   worker_pool,
+  emysql,
+  eredis,
   safe_bunny
 ]).
 

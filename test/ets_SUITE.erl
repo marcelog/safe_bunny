@@ -22,13 +22,11 @@ init_per_testcase(_TestCase, _Config) ->
     safe_bunny, ets,
     lists:keystore(consumer_poll, 1, MysqlConfig, {consumer_poll, 500})
   ),
-  ok = safe_bunny:start(),
-	[].
+  helper_utils:start().
 
 -spec end_per_testcase(term(), term()) -> void.
 end_per_testcase(_TestCase, _Config) ->
-  application:stop(safe_bunny),
-  [].
+  helper_utils:stop().
 
 -spec can_deliver([term()]) -> ok.
 can_deliver(_Config) ->
@@ -45,4 +43,9 @@ can_deliver(_Config) ->
 
 -spec complete_coverage([term()]) -> ok.
 complete_coverage(_Config) ->
+  {noreply, state} = safe_bunny_producer_ets:handle_cast(msg, state),
+  {noreply, state} = safe_bunny_producer_ets:handle_info(info, state),
+  {reply, {invalid_request, unknown}, state} = safe_bunny_producer_ets:handle_call(unknown, from, state),
+  {ok, state} = safe_bunny_producer_ets:code_change(oldvsn, state, extra),
+  ok = safe_bunny_producer_ets:terminate(reason, state),
   ok = safe_bunny_consumer_ets:terminate(reason, state).

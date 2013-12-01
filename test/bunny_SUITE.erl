@@ -15,13 +15,11 @@ init_per_testcase(can_handle_no_more_backends, _Config) ->
   application:load(safe_bunny),
   application:set_env(safe_bunny, consumers, []),
   application:set_env(safe_bunny, producers, []),
-  ok = safe_bunny:start(),
-  [].
+  helper_utils:start().
 
 -spec end_per_testcase(term(), term()) -> void.
 end_per_testcase(_TestCase, _Config) ->
-  application:stop(safe_bunny),
-  [].
+  helper_utils:stop().
 
 -spec can_handle_no_more_backends([term()]) -> ok.
 can_handle_no_more_backends(_Config) ->

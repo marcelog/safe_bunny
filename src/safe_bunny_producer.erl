@@ -34,5 +34,5 @@
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%% Behavior definition.
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
--callback init(options()) -> ok|term().
+-callback start_link(options()) -> {ok, pid()}|ignore|{error, term()}.
 -callback queue(safe_bunny_message:queue_payload()) -> ok|term().

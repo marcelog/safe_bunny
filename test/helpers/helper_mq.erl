@@ -61,6 +61,10 @@ queue(Key, Payload) ->
 deliver_unsafe(Key, Payload) ->
   safe_bunny:deliver_unsafe(exchange(), Key, Payload).
 
+-spec deliver_safe(binary(), binary()) -> {pid(), reference()}.
+deliver_safe(Key, Payload) ->
+  safe_bunny:deliver_safe(exchange(), Key, Payload).
+
 -spec notify_when(pid(), binary(), binary()) -> ok.
 notify_when(Server, Payload, Pid) ->
   gen_server:call(Server, {notify_when, Payload, Pid}).

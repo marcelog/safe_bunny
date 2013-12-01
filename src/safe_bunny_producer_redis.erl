@@ -43,35 +43,35 @@
 %%% Exports.
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%% safe_bunny_producer behavior.
--export([init/1, queue/1]).
+-export([start_link/1, queue/1]).
 
 %%% worker_pool callbacks.
 -export([
-  terminate/2, code_change/3,
+  init/1, terminate/2, code_change/3,
   handle_call/3, handle_cast/2, handle_info/2
 ]).
+
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%% Behavior definition.
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
--spec init(safe_bunny_producer:options()) -> ok|term().
-init([worker|Options]) ->
-  Host = proplists:get_value(host, Options),
-  Port = proplists:get_value(port, Options),
-  Db = proplists:get_value(db, Options),
-  {ok, Pid} = eredis:start_link(Host, Port),
-  {ok, <<"OK">>} = eredis:q(Pid, [<<"select">>, Db]),
-  {ok, #state{eredis=Pid}};
-
-init(Options) ->
-  application:start(eredis),
+-spec start_link(safe_bunny_producer:options()) -> {ok, pid()}|ignore|{error, term()}.
+start_link(Options) ->
   Get = fun(Key) -> proplists:get_value(Key, Options) end,
   PoolSize = Get(producer_connections),
   wpool:start_pool(?MODULE, [
     {overrun_warning, 5000},
     {workers, PoolSize},
-    {worker, {?MODULE, [worker|Options]}}
-  ]),
-  ok.
+    {worker, {?MODULE, Options}}
+  ]).
+
+-spec init(safe_bunny_producer:options()) -> {ok, state()}|ignore|{error, term()}.
+init(Options) ->
+  Host = proplists:get_value(host, Options),
+  Port = proplists:get_value(port, Options),
+  Db = proplists:get_value(db, Options),
+  {ok, Pid} = eredis:start_link(Host, Port),
+  {ok, <<"OK">>} = eredis:q(Pid, [<<"select">>, Db]),
+  {ok, #state{eredis=Pid}}.
 
 -spec queue(safe_bunny_message:queue_payload()) -> ok|term().
 queue(Message) ->
@@ -81,11 +81,13 @@ queue(Message) ->
 %%% worker_pool API.
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 -spec handle_cast(any(), state()) -> {noreply, state()}.
-handle_cast(_Msg, State) ->
+handle_cast(Unknown, State) ->
+  lager:error("Unknown cast: ~p", [Unknown]),
   {noreply, State}.
 
 -spec handle_info(any(), state()) -> {noreply, state()}.
-handle_info(_Info, State) ->
+handle_info(Unknown, State) ->
+  lager:error("Unknown message: ~p", [Unknown]),
   {noreply, State}.
 
 -spec handle_call(
@@ -107,7 +109,7 @@ handle_call({queue, Message}, _From, #state{eredis=C} = State) ->
   {reply, Ret, State};
 
 handle_call(Unknown, _From, State) ->
-  lager:error("Invalid request: ~p ~p ~p", [?MODULE, self(), Unknown]),
+  lager:error("Unknown request: ~p", [Unknown]),
   {reply, {invalid_request, Unknown}, State}.
 
 -spec terminate(atom(), state()) -> ok.

@@ -1,4 +1,4 @@
-%%% @doc Main supervisor.
+%%% @doc Producers supervisor.
 %%%
 %%% Copyright 2012 Marcelo Gornstein &lt;marcelog@@gmail.com&gt;
 %%%
@@ -17,7 +17,7 @@
 %%% @copyright Marcelo Gornstein <marcelog@gmail.com>
 %%% @author Marcelo Gornstein <marcelog@gmail.com>
 %%%
--module(safe_bunny_sup).
+-module(safe_bunny_producer_sup).
 -author("marcelog@gmail.com").
 -github("https://github.com/marcelog").
 -homepage("http://marcelog.github.com/").
@@ -55,40 +55,15 @@ start_link() ->
   {ok, {{supervisor:strategy(),pos_integer(),pos_integer()},[supervisor:child_spec()]}}
   | ignore.
 init([]) ->
-  cxy_ctl:init(?SB_CFG:concurrency_limits()),
-  % Create ETS table (for ETS producer/consumer), so the sup owns it.
-  Ets = ?SB_CFG:ets_name(),
-  Ets = ets:new(Ets, [
-    ordered_set, public, named_table,
-    {write_concurrency, true}, {read_concurrency, true}
-  ]),
-
-  % Create worker pool definition.
-  ProducersSup = {safe_bunny_producer_sup,
-    {safe_bunny_producer_sup, start_link, []},
-    permanent, infinity, supervisor, [safe_bunny_producer_sup]
-  },
-  ConsumersSup = {safe_bunny_consumer_sup,
-    {safe_bunny_consumer_sup, start_link, []},
-    permanent, infinity, supervisor, [safe_bunny_consumer_sup]
-  },
-  MqConfig = ?SB_CFG:mq(),
-  WPoolDef = pool_def(MqConfig),
-  {ok, {{one_for_one, 5, 10}, [WPoolDef, ProducersSup, ConsumersSup]}}.
+  Producers = [producer_def(P) || P <- ?SB_CFG:producers()],
+  {ok, {{one_for_one, 5, 10}, Producers}}.
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%% Private API.
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%% @doc Returns child specifications for rabbitmq pools.
--spec pool_def(proplists:proplist()) -> supervisor:child_spec().
-pool_def(MqConfig) ->
-  Workers = proplists:get_value(workers, MqConfig),
-  WorkerDef = [safe_bunny_worker, [
-    {overrun_warning, 5000},
-    {workers, Workers},
-    {worker, {safe_bunny_worker, MqConfig}}
-  ]],
-  {mq,
-    {wpool, start_pool, WorkerDef},
-    permanent, brutal_kill, supervisor, [wpool]
+producer_def(BackendName) ->
+  Module = list_to_atom("safe_bunny_producer_" ++ atom_to_list(BackendName)),
+  {Module,
+    {Module, start_link, [?SB_CFG:BackendName()]},
+    permanent, brutal_kill, worker, [Module]
   }.
