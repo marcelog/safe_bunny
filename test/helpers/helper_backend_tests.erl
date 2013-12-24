@@ -7,6 +7,7 @@
   can_drop_safe_on_max_attempts/2,
   can_drop_unsafe_on_max_attempts/2,
   can_deliver_with_mq_down/2,
+  can_cycle_through_poll_timers/2,
   complete_coverage/2
 ]).
 
@@ -17,6 +18,7 @@ all() -> [
   can_drop_safe_on_max_attempts,
   can_drop_unsafe_on_max_attempts,
   can_deliver_with_mq_down,
+  can_cycle_through_poll_timers,
   complete_coverage
 ].
 
@@ -94,6 +96,7 @@ can_deliver_with_mq_down(Backend, _Config) ->
   ok = meck:new(safe_bunny_worker, [passthrough]),
   % Simulate mq is unreachable.
   meck:expect(safe_bunny_worker, deliver, fun(_, _, _, _) -> not_available end),
+
   BackendBin = list_to_binary(atom_to_list(Backend)),
   TestText = <<BackendBin/binary, " 4">>,
 
@@ -109,7 +112,6 @@ can_deliver_with_mq_down(Backend, _Config) ->
   {ok, Client2} = helper_mq:start_listening(<<"test4">>, [{TestText, self()}]),
   meck:expect(safe_bunny_worker, deliver, fun(Safe, Ex, Q, P) -> meck:passthrough([Safe, Ex, Q, P]) end),
   timer:sleep(50),
-
   lists:foreach(fun(_) ->
     ok = receive
       {message, TestText} -> ok
@@ -120,6 +122,36 @@ can_deliver_with_mq_down(Backend, _Config) ->
   helper_mq:stop(Client2),
   true = meck:validate(safe_bunny_worker),
   ok = meck:unload(safe_bunny_worker),
+  ok.
+
+-spec can_cycle_through_poll_timers(atom(), [term()]) -> ok.
+can_cycle_through_poll_timers(Backend, _Config) ->
+  BackendBin = list_to_binary(atom_to_list(Backend)),
+  Module = safe_bunny:consumer_module(Backend),
+  TestText = <<BackendBin/binary, " 5">>,
+
+  ok = meck:new(Module, [passthrough]),
+  % Simulate local queue is down.
+  Tid = ets:new(?MODULE, [public]),
+  ets:insert(Tid, [{counter, 0}]),
+  meck:expect(Module, next, fun(Total, State) ->
+    case ets:update_counter(Tid, counter, 1) of
+      R when R > 3 -> meck:passthrough([Total, State]);
+      _ -> {error, some_error, State}
+    end
+  end),
+
+  {ok, Client2} = helper_mq:start_listening(<<"test5">>, [{TestText, self()}]),
+  helper_mq:deliver_safe(<<"test5">>, TestText),
+  ok = receive
+    {message, TestText} -> ok
+  after 2000 ->
+    timeout
+  end,
+  helper_mq:stop(Client2),
+  true = meck:validate(Module),
+  ok = meck:unload(Module),
+  ets:delete(Tid),
   ok.
 
 -spec complete_coverage(atom(), [term()]) -> ok.

@@ -21,7 +21,7 @@ init_per_testcase(TestCase, Config) ->
   helper_utils:start(TestCase, Config).
 
 -spec end_per_testcase(term(), term()) -> void.
-end_per_testcase(TestCase, Config) ->
+end_per_testcase(_TestCase, _Config) ->
   helper_utils:stop().
 
 -spec can_deliver([term()]) -> ok.

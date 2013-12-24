@@ -181,7 +181,7 @@ handle_info(poll, State=#state{
           "~p: Retrying in ~pms due to: ~p (~p)",
           [State#state.callback, NextPoll_, OpError, erlang:get_stacktrace()]
         ),
-        {NextPoll_, State#state{poll_intervals = NextIntervals}}
+        {NextPoll_, State#state{current_intervals = NextIntervals}}
   end,
   PollTimer = erlang:send_after(NextPoll, self(), poll),
   {noreply, NewState#state{
