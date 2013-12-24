@@ -36,7 +36,7 @@
 -export([consumers/0, producers/0]).
 -export([mq/0]).
 -export([ets/0, file/0, redis/0, mysql/0]).
--export([mysql_table/0, redis_key_prefix/0, ets_name/0, file_directory/0]).
+-export([redis_key_prefix/0, ets_name/0, file_directory/0]).
 -export([mq_confirm_timeout/0]).
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -150,11 +150,6 @@ mysql() ->
     {poll_intervals, [500, 1000, 2000, 4000, 10000, 60000]},
     {maximum_retries, 100}
   ]).
-
-%% @doc Shortcut to get mysql table name.
--spec mysql_table() -> string().
-mysql_table() ->
-  proplists:get_value(table, mysql()).
 
 %% @doc Returns the given option, or undefined if not found.
 -spec get_option(atom()) -> term().

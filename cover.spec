@@ -8,6 +8,7 @@
   helper_utils,
 
   bunny_SUITE,
+  config_SUITE,
   consumer_SUITE,
   ets_SUITE,
   file_SUITE,
