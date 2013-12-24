@@ -92,6 +92,9 @@ test: compile #analyze
 	    ${REBAR} -v 3 skip_deps=true ${CT_SUITES_} ${CT_CASE_} ct
 	@find ${ROOT}/ebin -type f -name "*.erl" -exec rm {} \;
 
+ci: getdeps test cobertura
+	make xref > ${XREF_OUT}
+
 covertool:
 	cd deps/covertool && make REBAR=${REBAR} deps
 	cd deps/covertool && make REBAR=${REBAR} compile
