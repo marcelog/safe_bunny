@@ -74,7 +74,7 @@ xref:
 	${REBAR} skip_deps=true xref
 
 # Generates doc
-doc:
+edoc:
 	${REBAR} skip_deps=true doc 
 
 # This one runs without a release.
@@ -92,7 +92,7 @@ test: compile #analyze
 	    ${REBAR} -v 3 skip_deps=true ${CT_SUITES_} ${CT_CASE_} ct
 	@find ${ROOT}/ebin -type f -name "*.erl" -exec rm {} \;
 
-ci: getdeps test cobertura doc
+ci: getdeps test cobertura edoc
 	make xref > ${XREF_OUT}
 
 covertool:
