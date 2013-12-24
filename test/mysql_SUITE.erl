@@ -8,6 +8,7 @@
   can_deliver_eventually/1,
   can_drop_safe_on_max_attempts/1,
   can_drop_unsafe_on_max_attempts/1,
+  can_deliver_with_mq_down/1,
   complete_coverage/1
 ]).
 
@@ -38,6 +39,10 @@ can_drop_safe_on_max_attempts(Config) ->
 -spec can_drop_unsafe_on_max_attempts([term()]) -> ok.
 can_drop_unsafe_on_max_attempts(Config) ->
   helper_backend_tests:can_drop_unsafe_on_max_attempts(?BACKEND, Config).
+
+-spec can_deliver_with_mq_down([term()]) -> ok.
+can_deliver_with_mq_down(Config) ->
+  helper_backend_tests:can_deliver_with_mq_down(?BACKEND, Config).
 
 -spec complete_coverage([term()]) -> ok.
 complete_coverage(Config) ->

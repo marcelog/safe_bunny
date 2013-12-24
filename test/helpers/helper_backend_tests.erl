@@ -6,6 +6,7 @@
   can_deliver_eventually/2,
   can_drop_safe_on_max_attempts/2,
   can_drop_unsafe_on_max_attempts/2,
+  can_deliver_with_mq_down/2,
   complete_coverage/2
 ]).
 
@@ -15,6 +16,7 @@ all() -> [
   can_deliver_eventually,
   can_drop_safe_on_max_attempts,
   can_drop_unsafe_on_max_attempts,
+  can_deliver_with_mq_down,
   complete_coverage
 ].
 
@@ -52,7 +54,7 @@ can_deliver(Backend, _Config) ->
   helper_mq:queue(<<"test">>, TestText),
   ok = receive
     {message, TestText} -> ok
-  after 1000 ->
+  after 5000 ->
     timeout
   end,
   helper_mq:stop(Client1),
@@ -86,6 +88,39 @@ can_drop_safe_on_max_attempts(Backend, Config) ->
 -spec can_drop_unsafe_on_max_attempts(atom(), [term()]) -> ok.
 can_drop_unsafe_on_max_attempts(Backend, Config) ->
   can_drop_on_max_attempts(Backend, false, Config).
+
+-spec can_deliver_with_mq_down(atom(), [term()]) -> ok.
+can_deliver_with_mq_down(Backend, _Config) ->
+  ok = meck:new(safe_bunny_worker, [passthrough]),
+  % Simulate mq is unreachable.
+  meck:expect(safe_bunny_worker, deliver, fun(_, _, _, _) -> not_available end),
+  BackendBin = list_to_binary(atom_to_list(Backend)),
+  TestText = <<BackendBin/binary, " 4">>,
+
+  % Queue a few messages.
+  helper_mq:deliver_safe(<<"test4">>, TestText),
+  helper_mq:deliver_safe(<<"test4">>, TestText),
+  helper_mq:deliver_safe(<<"test4">>, TestText),
+
+  % Give time so deliveries are attempted.
+  timer:sleep(50),
+
+  % Restore original behavior, go go gooo
+  {ok, Client2} = helper_mq:start_listening(<<"test4">>, [{TestText, self()}]),
+  meck:expect(safe_bunny_worker, deliver, fun(Safe, Ex, Q, P) -> meck:passthrough([Safe, Ex, Q, P]) end),
+  timer:sleep(50),
+
+  lists:foreach(fun(_) ->
+    ok = receive
+      {message, TestText} -> ok
+    after 2000 ->
+      timeout
+    end
+  end, lists:seq(1, 3)),
+  helper_mq:stop(Client2),
+  true = meck:validate(safe_bunny_worker),
+  ok = meck:unload(safe_bunny_worker),
+  ok.
 
 -spec complete_coverage(atom(), [term()]) -> ok.
 complete_coverage(Backend, _Config) ->
