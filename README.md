@@ -1,4 +1,5 @@
 # About
+
 RabbitMQ delivery with local queuing on failure. It's a bit of boiler plate code
 that can be useful in lots of projects, and it's basically a small wrapper around
 the publish function of the [rabbitmq erlang client](http://www.rabbitmq.com/erlang-client-user-guide.html).
@@ -15,6 +16,10 @@ messages, and it will handle this automagically for you (or at least do its best
 effort).
 
 safe_bunny includes the needed producers and consumers for the fallback queues.
+
+## Jenkins Job
+Be sure to checkout the [jenkins job page](http://ci.marcelog.name/job/safe_bunny/)
+to see metrics, tests, and documentation.
 
 ## Example
 
