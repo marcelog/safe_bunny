@@ -72,7 +72,7 @@ queue(Message) ->
   Directory = ?SB_CFG:file_directory(),
   Attempts = "0",
 
-  Filename = Directory ++ "/" ++ string:join([Ts, Id, Exchange, Key, Attempts], "."),
+  Filename = Directory ++ "/" ++ string:join([Ts, Id, Exchange, Key, Attempts], "@"),
   ok = filelib:ensure_dir(Filename),
   ok = file:write_file(Filename, Payload).
 
