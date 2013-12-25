@@ -76,7 +76,8 @@ init(Options) ->
     "INSERT INTO `", Table, "` ("
       "`uuid`, `exchange`, `key`, `payload`, `attempts`"
     ") ("
-    "  SELECT `uuid`, `exchange`, `key`, `payload`, `attempts`+1 FROM `items` WHERE uuid=?"
+    "  SELECT `uuid`, `exchange`, `key`, `payload`, `attempts`+1 "
+    "  FROM `", Table, "` WHERE uuid=?"
     ")"
   ])),
   ok = emysql:prepare(flush, lists:flatten(["TRUNCATE TABLE `", Table, "`"])),
