@@ -4,17 +4,17 @@
   safe_bunny_producer,
 
   helper_mq,
-  helper_backend_tests,
-  helper_utils,
+  safe_bunny_helper_backend_tests,
+  safe_bunny_helper_utils,
 
-  bunny_SUITE,
-  config_SUITE,
-  consumer_SUITE,
-  ets_SUITE,
-  file_SUITE,
-  mysql_SUITE,
-  redis_SUITE,
-  worker_SUITE
+  safe_bunny_bunny_SUITE,
+  safe_bunny_config_SUITE,
+  safe_bunny_consumer_SUITE,
+  safe_bunny_ets_SUITE,
+  safe_bunny_file_SUITE,
+  safe_bunny_mysql_SUITE,
+  safe_bunny_redis_SUITE,
+  safe_bunny_worker_SUITE
 ]}.
 {incl_dirs_r, ["test"]}.
 {src_dirs, safe_bunny, ["test"]}.

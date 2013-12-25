@@ -1,4 +1,4 @@
--module(consumer_SUITE).
+-module(safe_bunny_consumer_SUITE).
 
 -export([all/0, init_per_testcase/2, end_per_testcase/2]).
 -export([
@@ -21,11 +21,11 @@ init_per_testcase(TestCase, Config) ->
   end,
   application:set_env(safe_bunny, consumers, Backends),
   application:set_env(safe_bunny, producers, Backends),
-  helper_utils:start(TestCase, Config).
+  safe_bunny_helper_utils:start(TestCase, Config).
 
 -spec end_per_testcase(term(), term()) -> void.
 end_per_testcase(_TestCase, _Config) ->
-  helper_utils:stop().
+  safe_bunny_helper_utils:stop().
 
 -spec can_handle_empty_queues([term()]) -> ok.
 can_handle_empty_queues(_Config) ->

@@ -1,4 +1,4 @@
--module(helper_utils).
+-module(safe_bunny_helper_utils).
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%% Exports.

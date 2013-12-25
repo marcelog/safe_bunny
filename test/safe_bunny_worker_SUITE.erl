@@ -1,4 +1,4 @@
--module(worker_SUITE).
+-module(safe_bunny_worker_SUITE).
 
 -export([all/0, init_per_testcase/2, end_per_testcase/2]).
 -export([
@@ -14,27 +14,27 @@ all() -> [
 
 -spec init_per_testcase(term(), term()) -> void.
 init_per_testcase(TestCase, Config) ->
-  helper_utils:start_needed_deps(),
+  safe_bunny_helper_utils:start_needed_deps(),
   application:load(safe_bunny),
   application:set_env(safe_bunny, consumers, []),
   application:set_env(safe_bunny, producers, []),
-  helper_utils:start(TestCase, Config).
+  safe_bunny_helper_utils:start(TestCase, Config).
 
 -spec end_per_testcase(term(), term()) -> void.
 end_per_testcase(_TestCase, _Config) ->
-  helper_utils:stop().
+  safe_bunny_helper_utils:stop().
 
 -spec can_deliver([term()]) -> ok.
 can_deliver(_Config) ->
-  {ok, Client1} = helper_mq:start(<<"test">>),
-  helper_mq:notify_when(Client1, <<"worker 1">>, self()),
-  helper_mq:deliver_unsafe(<<"test">>, <<"worker 1">>),
+  {ok, Client1} = safe_bunny_helper_mq:start(<<"test">>),
+  safe_bunny_helper_mq:notify_when(Client1, <<"worker 1">>, self()),
+  safe_bunny_helper_mq:deliver_unsafe(<<"test">>, <<"worker 1">>),
   ok = receive
     {message, <<"worker 1">>} -> ok
   after 1000 ->
     timeout
   end,
-  helper_mq:stop(Client1),
+  safe_bunny_helper_mq:stop(Client1),
   ok.
 
 -spec complete_coverage([term()]) -> ok.

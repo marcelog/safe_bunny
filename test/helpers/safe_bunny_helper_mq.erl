@@ -1,4 +1,4 @@
--module(helper_mq).
+-module(safe_bunny_helper_mq).
 -behavior(gen_server).
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%

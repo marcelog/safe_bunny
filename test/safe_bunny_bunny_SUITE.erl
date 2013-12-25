@@ -1,4 +1,4 @@
--module(bunny_SUITE).
+-module(safe_bunny_bunny_SUITE).
 
 -export([all/0, init_per_testcase/2, end_per_testcase/2]).
 -export([
@@ -16,7 +16,7 @@ all() -> [
 
 -spec init_per_testcase(term(), term()) -> void.
 init_per_testcase(TestCase, Config) ->
-  helper_utils:start_needed_deps(),
+  safe_bunny_helper_utils:start_needed_deps(),
   application:load(safe_bunny),
   {Consumers, Producers} = case TestCase of
     can_handle_no_more_backends -> {[], []};
@@ -29,11 +29,11 @@ init_per_testcase(TestCase, Config) ->
   end,
   application:set_env(safe_bunny, consumers, Consumers),
   application:set_env(safe_bunny, producers, Producers),
-  helper_utils:start(TestCase, Config).
+  safe_bunny_helper_utils:start(TestCase, Config).
 
 -spec end_per_testcase(term(), term()) -> void.
 end_per_testcase(_TestCase, _Config) ->
-  helper_utils:stop().
+  safe_bunny_helper_utils:stop().
 
 -spec can_cycle_backends([term()]) -> ok.
 can_cycle_backends(_Config) ->
@@ -47,7 +47,7 @@ can_cycle_backends(_Config) ->
   MockWith = fun(Fun) ->
     ok = meck:new(Mods, Opts),
     ok = meck:expect(Mods, queue, Fun),
-    {Pid, Ref} = helper_mq:queue(<<"test">>, <<"payload">>),
+    {Pid, Ref} = safe_bunny_helper_mq:queue(<<"test">>, <<"payload">>),
     Ret = receive
       {'DOWN', Ref, process, Pid, {spawn_failure,[{_,_,[{_,{{error,{badmatch,{error,out_of_backends}}},_,_,_}}],_}]}} -> ok
     after 1000 -> 
@@ -68,7 +68,7 @@ can_deliver_safe(_Config) ->
   ok = meck:new(amqp_channel, [passthrough, non_strict, non_link]),
   ok = meck:expect(amqp_channel, call, fun(_, _, _) -> some_error end),
   ok = meck:expect(safe_bunny_producer_ets, queue, fun(_) -> ok end),
-  helper_mq:deliver_safe(<<"key">>, <<"payload">>),
+  safe_bunny_helper_mq:deliver_safe(<<"key">>, <<"payload">>),
   timer:sleep(100),
   true = meck:validate([amqp_channel, safe_bunny_producer_ets]),
   ok = meck:unload([amqp_channel, safe_bunny_producer_ets]),
