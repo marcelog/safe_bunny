@@ -86,7 +86,7 @@ init([]) ->
 pool_def(MqConfig) ->
   Workers = proplists:get_value(workers, MqConfig),
   WorkerDef = [safe_bunny_worker, [
-    {overrun_warning, 5000},
+    {overrun_warning, infinity},
     {workers, Workers},
     {worker, {safe_bunny_worker, MqConfig}}
   ]],

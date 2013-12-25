@@ -62,7 +62,9 @@
 %% @doc Safe implies mandatory, and confirmation required from the mq.
 -spec deliver(boolean(), binary(), binary(), binary()) -> ok|term().
 deliver(Safe, Exchange, Key, Payload) ->
-  wpool:call(?MODULE, {deliver, {Safe, Exchange, Key, Payload}}).
+  wpool:call(
+    ?MODULE, {deliver, {Safe, Exchange, Key, Payload}}, available_worker, infinity
+  ).
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%% gen_server API.
