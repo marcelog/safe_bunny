@@ -196,7 +196,8 @@ connect(Config) ->
     password = Get({s, pass}),
     virtual_host = Get({s, vhost}),
     port = Get(port),
-    host = Get(host)
+    host = Get(host),
+    ssl_options = Get(ssl_options)
   })).
 
 new_channel({ok, Connection}) ->

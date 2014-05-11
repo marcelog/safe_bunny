@@ -39,6 +39,10 @@
   worker_pool,
   emysql,
   eredis,
+  public_key,
+  asn1,
+  crypto,
+  ssl,
   safe_bunny
 ]).
 
