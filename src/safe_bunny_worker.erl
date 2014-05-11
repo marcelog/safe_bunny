@@ -191,13 +191,19 @@ connect(Config) ->
       list_to_binary(proplists:get_value(X, Config));
     (X) ->
       proplists:get_value(X, Config) end,
+  GetWithDefault = fun(X, Default) ->
+    case Get(X) of
+      undefined -> Default;
+      Value -> Value
+    end
+  end,
   new_channel(amqp_connection:start(#amqp_params_network{
     username = Get({s, user}),
     password = Get({s, pass}),
     virtual_host = Get({s, vhost}),
     port = Get(port),
     host = Get(host),
-    ssl_options = Get(ssl_options)
+    ssl_options = GetWithDefault(ssl_options, none)
   })).
 
 new_channel({ok, Connection}) ->
