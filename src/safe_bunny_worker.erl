@@ -146,7 +146,7 @@ handle_call({deliver, {Safe, Exchange, Key, Payload}}, _From, State=#state{chann
       Error -> Error
     end
   end,
-  lager:debug("Delivery ended with: ~p", [Ret]),
+  %lager:debug("Delivery ended with: ~p", [Ret]),
   {reply, Ret, State};
 
 handle_call(Req, _From, State) ->
