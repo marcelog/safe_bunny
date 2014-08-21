@@ -16,5 +16,5 @@
   safe_bunny_redis_SUITE,
   safe_bunny_worker_SUITE
 ]}.
-{incl_dirs_r, ["test"]}.
-{src_dirs, safe_bunny, ["test"]}.
+{incl_dirs_r, ["../../../test"]}.
+{src_dirs, safe_bunny, ["../../../test"]}.
