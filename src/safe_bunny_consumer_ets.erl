@@ -46,7 +46,7 @@
 -export([delete/1]).
 %-export([flush/1]).
 -export([failed/1, success/1]).
--export([init/1, terminate/2]).
+-export([init/1, info/2, terminate/2]).
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%% Behavior definition.
@@ -84,6 +84,11 @@ next(Total, State, SoFar, [Last|_] = Acc) ->
 delete(Id) ->
   ets:delete(?SB_CFG:ets_name(), Id),
   ok.
+
+-spec info(any(), ?SBC:callback_state()) -> ?SBC:callback_result().
+info(Msg, State) ->
+  lager:error("Invalid msg: ~p", [Msg]),
+  {ok, State, hibernate}.
 
 -spec success(?SB:queue_id()) -> ?SBC:callback_result().
 success(Id) ->

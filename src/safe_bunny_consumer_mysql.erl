@@ -47,7 +47,7 @@
 -export([delete/1]).
 %-export([flush/1]).
 -export([failed/1, success/1]).
--export([init/1, terminate/2]).
+-export([init/1, info/2, terminate/2]).
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%% Behavior definition.
@@ -63,7 +63,12 @@ init(Options) ->
   Port = Get(port),
   Db = Get(db),
   Table = Get(table),
-	ok = emysql:add_pool(?MODULE, 1, User, Pass, Host, Port, Db, utf8),
+  ok = try
+    ok = emysql:add_pool(?MODULE, 1, User, Pass, Host, Port, Db, utf8)
+  catch
+    _:pool_already_exists -> ok;
+    _:Error -> Error
+  end,
   #ok_packet{} = emysql:execute(?MODULE, ?CREATE_TABLE_SQL(Table)),
   ok = emysql:prepare(fetch_items, lists:flatten([
     "SELECT `uuid`, `exchange`, `key`, `payload`, `attempts` FROM `", Table,
@@ -110,6 +115,11 @@ failed(Id) ->
     #ok_packet{} -> delete(Id);
     Error -> {error, Error}
   end.
+
+-spec info(any(), ?SBC:callback_state()) -> ?SBC:callback_result().
+info(Msg, State) ->
+  lager:error("Invalid msg: ~p", [Msg]),
+  {ok, State, hibernate}.
 
 -spec success(?SB:queue_id()) -> ?SBC:callback_result().
 success(Id) ->

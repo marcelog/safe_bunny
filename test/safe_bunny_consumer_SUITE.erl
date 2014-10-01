@@ -34,7 +34,7 @@ can_handle_empty_queues(_Config) ->
 -spec complete_coverage([term()]) -> ok.
 complete_coverage(_Config) ->
   {noreply, state, hibernate} = safe_bunny_consumer:handle_cast(msg, state),
-  {noreply, state, hibernate} = safe_bunny_consumer:handle_info(info, state),
+%  {noreply, state, hibernate} = safe_bunny_consumer:handle_info(info, state),
   {reply, invalid_request, state, hibernate} = safe_bunny_consumer:handle_call(unknown, from, state),
   ok = safe_bunny_consumer:terminate(reason, state),
   {ok, state} = safe_bunny_consumer:code_change(oldvsn, state, extra).

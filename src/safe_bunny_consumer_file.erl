@@ -46,7 +46,7 @@
 -export([delete/1]).
 %-export([flush/1]).
 -export([failed/1, success/1]).
--export([init/1, terminate/2]).
+-export([init/1, info/2, terminate/2]).
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%% Behavior definition.
@@ -91,6 +91,11 @@ failed(Filename) ->
   Directory = ?SB_CFG:file_directory(),
   NewName = Directory ++ "/" ++ string:join([Ts, Id, Exchange, Key, NewAttempts], "@"),
   file:rename(Filename, NewName).
+
+-spec info(any(), ?SBC:callback_state()) -> ?SBC:callback_result().
+info(Msg, State) ->
+  lager:error("Invalid msg: ~p", [Msg]),
+  {ok, State, hibernate}.
 
 -spec success(?SB:queue_id()) -> ?SBC:callback_result().
 success(Id) ->

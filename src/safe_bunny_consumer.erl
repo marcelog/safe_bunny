@@ -63,6 +63,8 @@
 -callback success(safe_bunny:queue_id()) -> callback_result().
 -callback delete(safe_bunny:queue_id()) -> callback_result().
 -callback terminate(any(), state()) -> ok.
+-callback info(any(), state()) ->
+  {ok, state()}|{error, term()}|{stop, term()}.
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%% Exports.
@@ -189,9 +191,18 @@ handle_info(poll, State=#state{
     poll_timer = PollTimer
   }, hibernate};
 
-handle_info(Msg, State) ->
-  lager:error("Invalid msg: ~p", [Msg]),
-  {noreply, State, hibernate}.
+handle_info(Msg, State=#state{
+  callback = Module, callback_state = CallbackState
+}) ->
+  case Module:info(Msg, CallbackState) of
+    {error, NewState} ->
+      lager:error("Error processing msg ~p: ~p", [Msg, NewState]),
+      {noreply, State#state{callback_state = NewState}, hibernate};
+    {ok, NewState} ->
+      {noreply, State#state{callback_state = NewState}, hibernate};
+    {stop, NewState} ->
+    {stop, State#state{callback_state = NewState}}
+  end.
 
 -spec handle_call(
   term(), {pid(), reference()}, state()

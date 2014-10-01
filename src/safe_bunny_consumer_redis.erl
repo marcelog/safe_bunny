@@ -34,7 +34,9 @@
 %%% Types.
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 -record(state, {
-  eredis = undefined:: pid()
+  eredis = undefined:: pid(),
+  options = []:: proplists:proplist(),
+  ready = false:: boolean()
 }).
 -type state():: #state{}.
 -define(SB, safe_bunny).
@@ -48,24 +50,24 @@
 -export([delete/1]).
 %-export([flush/1]).
 -export([failed/1, success/1]).
--export([init/1, terminate/2]).
+-export([init/1, info/2, terminate/2]).
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%% Behavior definition.
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 -spec init(safe_bunny_consumer:options()) -> {ok, state()}|{error, term()}.
 init(Options) ->
-  Host = proplists:get_value(host, Options),
-  Port = proplists:get_value(port, Options),
-  Db = proplists:get_value(db, Options),
-  {ok, Pid} = eredis:start_link(Host, Port),
-  erlang:register(redis_name(), Pid),
-  {ok, _} = exec(<<"select">>, [Db]),
-  {ok, #state{eredis=Pid}}.
+  process_flag(trap_exit, true),
+  self() ! {connect},
+  {ok, #state{options = Options}}.
 
 -spec next(pos_integer(), ?SBC:callback_state()) ->
   {ok, ?SB:queue_fetch_result(), ?SBC:callback_state()}
   | {error, term(), ?SBC:callback_state()}.
+next(_Total, State = #state{ready = false}) ->
+  lager:warning("~p not ready", [?MODULE]),
+  {ok, [], State};
+
 next(Total, State) ->
   case exec(
     <<"SRANDMEMBER">>,
@@ -94,7 +96,6 @@ delete(Id) ->
 
 -spec failed(?SB:queue_id()) -> ?SBC:callback_result().
 failed(Id) ->
-  QKey = safe_bunny_common_redis:key_queue(),
   case exec([
     [<<"MULTI">>],
     [<<"HINCRBY">>, safe_bunny_common_redis:key_message(Id), <<"attempts">>, <<"1">>],
@@ -111,6 +112,43 @@ failed(Id) ->
 %    {ok, _} -> {ok, State};
 %    {error, Error} -> {error, Error, State}
 %  end.
+
+-spec info(any(), ?SBC:callback_state()) -> ?SBC:callback_result().
+info({'EXIT', Redis, Reason}, State = #state{eredis = Redis}) ->
+  lager:warning("Lost connection: ~p", [Reason]),
+  {ok, _} = timer:send_after(5000, self(), {connect}),
+  {ok, State#state{ready = false}};
+
+info({'EXIT', Pid, Reason}, State) ->
+  lager:warning("Dying because of: ~p with ~p", [Pid, Reason]),
+  {stop, State};
+
+info({connect}, State = #state{options = Options}) ->
+  lager:debug("Connecting to: ~p", [Options]),
+  Host = proplists:get_value(host, Options),
+  Port = proplists:get_value(port, Options),
+  Db = proplists:get_value(db, Options),
+  try
+    case eredis:start_link(Host, Port) of
+      {ok, Pid} ->
+        erlang:register(redis_name(), Pid),
+        {ok, _} = exec(<<"select">>, [Db]),
+        {ok, State#state{ready = true, eredis=Pid}};
+      Error -> receive _X -> ok after 500 -> ok end, throw(Error)
+    end
+  catch 
+    _:HardError ->
+      lager:error(
+        "Could not connect to ~p: ~p: ~p",
+        [Options, HardError, erlang:get_stacktrace()]
+      ),
+      {ok, _} = timer:send_after(5000, self(), {connect}),
+      {ok, State#state{ready = false}}
+  end;
+
+info(Msg, State) ->
+  lager:error("Invalid msg: ~p", [Msg]),
+  {ok, State, hibernate}.
 
 -spec success(?SB:queue_id()) -> ?SBC:callback_result().
 success(Id) ->

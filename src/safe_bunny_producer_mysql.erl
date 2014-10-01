@@ -68,7 +68,12 @@ init(Options) ->
   Db = Get(db),
   Table = Get(table),
   PoolSize = Get(producer_connections),
-  ok = emysql:add_pool(?MODULE, PoolSize, User, Pass, Host, Port, Db, utf8),
+  ok = try
+    ok = emysql:add_pool(?MODULE, 1, User, Pass, Host, Port, Db, utf8)
+  catch
+    _:pool_already_exists -> ok;
+    _:Error -> Error
+  end,
   #ok_packet{} = emysql:execute(?MODULE, ?CREATE_TABLE_SQL(Table)),
   ok = emysql:prepare(new_item, lists:flatten([
     "INSERT INTO `", Table, "` (`uuid`, `exchange`, `key`, `payload`) VALUES(?,?,?,?)"

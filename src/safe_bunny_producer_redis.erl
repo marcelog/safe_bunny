@@ -35,7 +35,9 @@
 %%% Types.
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 -record(state, {
-  eredis = undefined:: pid()
+  eredis = undefined:: pid(),
+  options = []:: proplists:proplist(),
+  ready = false:: boolean()
 }).
 -type state():: #state{}.
 
@@ -66,12 +68,9 @@ start_link(Options) ->
 
 -spec init(safe_bunny_producer:options()) -> {ok, state()}|ignore|{error, term()}.
 init(Options) ->
-  Host = proplists:get_value(host, Options),
-  Port = proplists:get_value(port, Options),
-  Db = proplists:get_value(db, Options),
-  {ok, Pid} = eredis:start_link(Host, Port),
-  {ok, <<"OK">>} = eredis:q(Pid, [<<"select">>, Db]),
-  {ok, #state{eredis=Pid}}.
+  process_flag(trap_exit, true),
+  self() ! {connect},
+  {ok, #state{options = Options}}.
 
 -spec queue(safe_bunny_message:queue_payload()) -> ok|term().
 queue(Message) ->
@@ -86,8 +85,39 @@ handle_cast(Unknown, State) ->
   {noreply, State}.
 
 -spec handle_info(any(), state()) -> {noreply, state()}.
-handle_info(Unknown, State) ->
-  lager:error("Unknown message: ~p", [Unknown]),
+handle_info({'EXIT', Redis, Reason}, State = #state{eredis = Redis}) ->
+  lager:warning("Lost connection: ~p", [Reason]),
+  {ok, _} = timer:send_after(5000, self(), {connect}),
+  {noreply, State#state{ready = false}};
+
+handle_info({'EXIT', Pid, Reason}, State) ->
+  lager:warning("Dying because of: ~p with ~p", [Pid, Reason]),
+  {stop, State};
+
+handle_info({connect}, State = #state{options = Options}) ->
+  lager:debug("Connecting to: ~p", [Options]),
+  Host = proplists:get_value(host, Options),
+  Port = proplists:get_value(port, Options),
+  Db = proplists:get_value(db, Options),
+  try
+    case eredis:start_link(Host, Port) of
+      {ok, Pid} ->
+        {ok, <<"OK">>} = eredis:q(Pid, [<<"select">>, Db]),
+        {noreply, State#state{ready = true, eredis=Pid}};
+      Error -> receive _X -> ok after 500 -> ok end, throw(Error)
+    end
+  catch 
+    _:HardError ->
+      lager:error(
+        "Could not connect to ~p: ~p: ~p",
+        [Options, HardError, erlang:get_stacktrace()]
+      ),
+      {ok, _} = timer:send_after(5000, self(), {connect}),
+      {noreply, State#state{ready = false}}
+  end;
+
+handle_info(Msg, State) ->
+  lager:error("Invalid msg: ~p", [Msg]),
   {noreply, State}.
 
 -spec handle_call(
