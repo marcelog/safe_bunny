@@ -54,8 +54,6 @@
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 -spec init(safe_bunny_consumer:options()) -> {ok, state()}|{error, term()}.
 init(Options) ->
-  crypto:start(),
-  application:start(emysql),
   Get = fun(Key) -> proplists:get_value(Key, Options) end,
   User = Get(user),
   Pass = Get(pass),
