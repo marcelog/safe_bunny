@@ -12,13 +12,15 @@
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 -spec start_needed_deps() -> ok.
 start_needed_deps() ->
-	Apps = [
-	  compiler,
-	  syntax_tools,
-	  lager
+  Apps = [
+    compiler,
+    syntax_tools,
+    lager,
+    crypto,
+    emysql
 	],
-	[application:start(App) || App <- Apps],
-	ok.
+  [application:start(App) || App <- Apps],
+  ok.
 
 -spec start(atom(), term()) -> proplists:proplist().
 start(TestCase, _Config) ->
