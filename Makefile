@@ -31,6 +31,7 @@ all: clean getdeps compile
 # Clean all.
 clean:
 	@${REBAR} clean
+	@rm -rf .rebar ebin logs log
 
 # Gets dependencies.
 getdeps:
